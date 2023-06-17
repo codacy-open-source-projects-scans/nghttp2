@@ -25,7 +25,7 @@ dnl Do not change user variables!
 dnl https://www.gnu.org/software/automake/manual/html_node/Flag-Variables-Ordering.html
 
 AC_PREREQ(2.61)
-AC_INIT([nghttp2], [1.54.0-DEV], [t-tujikawa@users.sourceforge.net])
+AC_INIT([nghttp2], [1.55.0-DEV], [t-tujikawa@users.sourceforge.net])
 AC_CONFIG_AUX_DIR([.])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([config.h])
@@ -433,6 +433,10 @@ if test "x${request_libev}" != "xno"; then
   else
     have_libev=yes
   fi
+
+  if test "x${have_libev}" = "xyes"; then
+    AC_DEFINE([HAVE_LIBEV], [1], [Define to 1 if you have `libev` library.])
+  fi
 fi
 
 if test "x${request_libev}" = "xyes" &&
@@ -504,7 +508,7 @@ fi
 # ngtcp2 (for src)
 have_libngtcp2=no
 if test "x${request_libngtcp2}" != "xno"; then
-  PKG_CHECK_MODULES([LIBNGTCP2], [libngtcp2 >= 0.15.0], [have_libngtcp2=yes],
+  PKG_CHECK_MODULES([LIBNGTCP2], [libngtcp2 >= 0.16.0], [have_libngtcp2=yes],
                     [have_libngtcp2=no])
   if test "x${have_libngtcp2}" = "xno"; then
     AC_MSG_NOTICE($LIBNGTCP2_PKG_ERRORS)
@@ -521,7 +525,7 @@ have_libngtcp2_crypto_openssl=no
 if test "x${have_ssl_is_quic}" = "xyes" &&
    test "x${request_libngtcp2}" != "xno"; then
   PKG_CHECK_MODULES([LIBNGTCP2_CRYPTO_OPENSSL],
-                    [libngtcp2_crypto_openssl >= 0.15.0],
+                    [libngtcp2_crypto_openssl >= 0.16.0],
                     [have_libngtcp2_crypto_openssl=yes],
                     [have_libngtcp2_crypto_openssl=no])
   if test "x${have_libngtcp2_crypto_openssl}" = "xno"; then
@@ -563,7 +567,7 @@ fi
 # nghttp3 (for src)
 have_libnghttp3=no
 if test "x${request_libnghttp3}" != "xno"; then
-  PKG_CHECK_MODULES([LIBNGHTTP3], [libnghttp3 >= 0.9.0], [have_libnghttp3=yes],
+  PKG_CHECK_MODULES([LIBNGHTTP3], [libnghttp3 >= 0.12.0], [have_libnghttp3=yes],
                     [have_libnghttp3=no])
   if test "x${have_libnghttp3}" = "xno"; then
     AC_MSG_NOTICE($LIBNGHTTP3_PKG_ERRORS)
