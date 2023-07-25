@@ -638,6 +638,8 @@ int Http3Upstream::init(const UpstreamAddr *faddr, const Address &remote_addr,
   settings.rand_ctx.native_handle = &worker->get_randgen();
   settings.token = token;
   settings.tokenlen = tokenlen;
+  settings.initial_pkt_num = std::uniform_int_distribution<uint32_t>(
+      0, std::numeric_limits<int32_t>::max())(worker->get_randgen());
 
   ngtcp2_transport_params params;
   ngtcp2_transport_params_default(&params);
@@ -1498,7 +1500,7 @@ void Http3Upstream::on_handler_delete() {
   auto worker = handler_->get_worker();
   auto quic_conn_handler = worker->get_quic_connection_handler();
 
-  std::vector<ngtcp2_cid> scids(ngtcp2_conn_get_num_scid(conn_) + 1);
+  std::vector<ngtcp2_cid> scids(ngtcp2_conn_get_scid(conn_, nullptr) + 1);
   ngtcp2_conn_get_scid(conn_, scids.data());
   scids.back() = hashed_scid_;
 
