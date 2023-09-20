@@ -1,4 +1,4 @@
-FROM debian:11 as build
+FROM debian:12 as build
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -24,7 +24,7 @@ RUN git clone --depth 1 -b v0.15.0 https://github.com/ngtcp2/nghttp3 && \
     cd .. && \
     rm -rf nghttp3
 
-RUN git clone --depth 1 -b v0.19.0 https://github.com/ngtcp2/ngtcp2 && \
+RUN git clone --depth 1 -b v0.19.1 https://github.com/ngtcp2/ngtcp2 && \
     cd ngtcp2 && \
     autoreconf -i && \
     ./configure --enable-lib-only \
@@ -63,7 +63,7 @@ RUN git clone --depth 1 https://github.com/nghttp2/nghttp2.git && \
     cd .. && \
     rm -rf nghttp2
 
-FROM gcr.io/distroless/base-debian11
+FROM gcr.io/distroless/base-debian12
 
 COPY --from=build \
     /usr/local/share/nghttp2/ \
