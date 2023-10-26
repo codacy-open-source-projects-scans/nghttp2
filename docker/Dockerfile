@@ -7,7 +7,7 @@ RUN apt-get update && \
         zlib1g-dev libev-dev libjemalloc-dev ruby-dev libc-ares-dev bison \
         libelf-dev
 
-RUN git clone --depth 1 -b OpenSSL_1_1_1v+quic https://github.com/quictls/openssl && \
+RUN git clone --depth 1 -b OpenSSL_1_1_1w+quic https://github.com/quictls/openssl && \
     cd openssl && \
     ./config --openssldir=/etc/ssl && \
     make -j$(nproc) && \
@@ -15,7 +15,7 @@ RUN git clone --depth 1 -b OpenSSL_1_1_1v+quic https://github.com/quictls/openss
     cd .. && \
     rm -rf openssl
 
-RUN git clone --depth 1 -b v0.15.0 https://github.com/ngtcp2/nghttp3 && \
+RUN git clone --depth 1 -b v1.0.0 https://github.com/ngtcp2/nghttp3 && \
     cd nghttp3 && \
     autoreconf -i && \
     ./configure --enable-lib-only && \
@@ -24,7 +24,7 @@ RUN git clone --depth 1 -b v0.15.0 https://github.com/ngtcp2/nghttp3 && \
     cd .. && \
     rm -rf nghttp3
 
-RUN git clone --depth 1 -b v0.19.1 https://github.com/ngtcp2/ngtcp2 && \
+RUN git clone --depth 1 -b v1.0.1 https://github.com/ngtcp2/ngtcp2 && \
     cd ngtcp2 && \
     autoreconf -i && \
     ./configure --enable-lib-only \
