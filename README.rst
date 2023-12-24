@@ -29,10 +29,10 @@ Public Test Server
 The following endpoints are available to try out our nghttp2
 implementation.
 
-* https://nghttp2.org/ (TLS + ALPN/NPN and HTTP/3)
+* https://nghttp2.org/ (TLS + ALPN and HTTP/3)
 
   This endpoint supports ``h2``, ``h2-16``, ``h2-14``, and
-  ``http/1.1`` via ALPN/NPN and requires TLSv1.2 for HTTP/2
+  ``http/1.1`` via ALPN and requires TLSv1.2 for HTTP/2
   connection.
 
   It also supports HTTP/3.
@@ -66,14 +66,11 @@ To build and run the application programs (``nghttp``, ``nghttpd``,
 ``nghttpx`` and ``h2load``) in the ``src`` directory, the following packages
 are required:
 
-* OpenSSL >= 1.0.1
+* OpenSSL >= 1.1.1; or LibreSSL >= 3.8.1; or aws-lc >= 1.19.0; or
+  BoringSSL
 * libev >= 4.11
 * zlib >= 1.2.3
 * libc-ares >= 1.7.5
-
-ALPN support requires OpenSSL >= 1.0.2 (released 22 January 2015).
-LibreSSL >= 2.2.0 can be used instead of OpenSSL, but OpenSSL has more
-features than LibreSSL at the time of this writing.
 
 To enable ``-a`` option (getting linked assets from the downloaded
 resource) in ``nghttp``, the following package is required:
@@ -118,16 +115,17 @@ required:
 * bison
 
 nghttpx supports `neverbleed <https://github.com/h2o/neverbleed>`_,
-privilege separation engine for OpenSSL / LibreSSL.  In short, it
-minimizes the risk of private key leakage when serious bug like
-Heartbleed is exploited.  The neverbleed is disabled by default.  To
-enable it, use ``--with-neverbleed`` configure option.
+privilege separation engine for OpenSSL.  In short, it minimizes the
+risk of private key leakage when serious bug like Heartbleed is
+exploited.  The neverbleed is disabled by default.  To enable it, use
+``--with-neverbleed`` configure option.
 
 To enable the experimental HTTP/3 support for h2load and nghttpx, the
 following libraries are required:
 
 * `OpenSSL with QUIC support
   <https://github.com/quictls/openssl/tree/OpenSSL_1_1_1w+quic>`_; or
+  LibreSSL (does not support 0RTT); or aws-lc; or
   `BoringSSL <https://boringssl.googlesource.com/boringssl/>`_ (commit
   6ca49385b168f47a50e7172d82a590b218f55e4d)
 * `ngtcp2 <https://github.com/ngtcp2/ngtcp2>`_ >= 1.0.0
@@ -539,7 +537,7 @@ nghttp - client
 +++++++++++++++
 
 ``nghttp`` is a HTTP/2 client.  It can connect to the HTTP/2 server
-with prior knowledge, HTTP Upgrade and NPN/ALPN TLS extension.
+with prior knowledge, HTTP Upgrade and ALPN TLS extension.
 
 It has verbose output mode for framing information.  Here is sample
 output from ``nghttp`` client:
@@ -765,8 +763,8 @@ nghttpd - server
 By default, it uses SSL/TLS connection.  Use ``--no-tls`` option to
 disable it.
 
-``nghttpd`` only accepts HTTP/2 connections via NPN/ALPN or direct
-HTTP/2 connections.  No HTTP Upgrade is supported.
+``nghttpd`` only accepts HTTP/2 connections via ALPN or direct HTTP/2
+connections.  No HTTP Upgrade is supported.
 
 The ``-p`` option allows users to configure server push.
 
@@ -847,7 +845,7 @@ to know how to migrate from earlier releases.
 ``nghttpx`` implements `important performance-oriented features
 <https://istlsfastyet.com/#server-performance>`_ in TLS, such as
 session IDs, session tickets (with automatic key rotation), OCSP
-stapling, dynamic record sizing, ALPN/NPN, forward secrecy and HTTP/2.
+stapling, dynamic record sizing, ALPN, forward secrecy and HTTP/2.
 ``nghttpx`` also offers the functionality to share session cache and
 ticket keys among multiple ``nghttpx`` instances via memcached.
 
@@ -974,12 +972,15 @@ threads to avoid saturating a single core on client side.
    servers.
 
 If the experimental HTTP/3 is enabled, h2load can send requests to
-HTTP/3 server.  To do this, specify ``h3`` to ``--npn-list`` option
+HTTP/3 server.  To do this, specify ``h3`` to ``--alpn-list`` option
 like so:
 
 .. code-block:: text
 
-    $ h2load --npn-list h3 https://127.0.0.1:4433
+    $ h2load --alpn-list h3 https://127.0.0.1:4433
+
+For nghttp2 v1.58 or earlier, use ``--npn-list`` instead of
+``--alpn-list``.
 
 HPACK tools
 -----------
