@@ -56,10 +56,13 @@ include(GNUInstallDirs)
 find_package(Python3 COMPONENTS Interpreter)
 
 # Auto-detection of features that can be toggled
+if(NOT ENABLE_LIB_ONLY)
+  find_package(Libev 4.11)
+  find_package(Libcares 1.7.5)
+  find_package(ZLIB 1.2.3)
+endif()
+
 find_package(OpenSSL 1.1.1)
-find_package(Libev 4.11)
-find_package(Libcares 1.7.5)
-find_package(ZLIB 1.2.3)
 find_package(Libngtcp2 1.0.0)
 find_package(Libngtcp2_crypto_quictls 1.0.0)
 if(LIBNGTCP2_CRYPTO_QUICTLS_FOUND)
@@ -278,7 +281,6 @@ check_include_file("pwd.h"          HAVE_PWD_H)
 check_include_file("sys/socket.h"   HAVE_SYS_SOCKET_H)
 check_include_file("sys/time.h"     HAVE_SYS_TIME_H)
 check_include_file("syslog.h"       HAVE_SYSLOG_H)
-check_include_file("time.h"         HAVE_TIME_H)
 check_include_file("unistd.h"       HAVE_UNISTD_H)
 check_include_file("windows.h"      HAVE_WINDOWS_H)
 
@@ -309,10 +311,6 @@ endif()
 
 include(CheckStructHasMember)
 check_struct_has_member("struct tm" tm_gmtoff time.h HAVE_STRUCT_TM_TM_GMTOFF)
-
-# Check size of pointer to decide we need 8 bytes alignment adjustment.
-check_type_size("int *"   SIZEOF_INT_P)
-check_type_size("time_t"  SIZEOF_TIME_T)
 
 # Checks for library functions.
 include(CheckFunctionExists)
