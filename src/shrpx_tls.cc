@@ -72,6 +72,11 @@
 #  endif // HAVE_LIBNGTCP2_CRYPTO_BORINGSSL
 #endif   // ENABLE_HTTP3
 
+#ifdef HAVE_LIBBROTLI
+#  include <brotli/encode.h>
+#  include <brotli/decode.h>
+#endif // HAVE_LIBBROTLI
+
 #include "shrpx_log.h"
 #include "shrpx_client_handler.h"
 #include "shrpx_config.h"
@@ -158,6 +163,35 @@ int ssl_pem_passwd_cb(char *buf, int size, int rwflag, void *user_data) {
 } // namespace
 
 namespace {
+std::shared_ptr<std::vector<uint8_t>>
+get_ocsp_data(TLSContextData *tls_ctx_data) {
+#ifdef HAVE_ATOMIC_STD_SHARED_PTR
+  return std::atomic_load_explicit(&tls_ctx_data->ocsp_data,
+                                   std::memory_order_acquire);
+#else  // !HAVE_ATOMIC_STD_SHARED_PTR
+  std::lock_guard<std::mutex> g(tls_ctx_data->mu);
+  return tls_ctx_data->ocsp_data;
+#endif // !HAVE_ATOMIC_STD_SHARED_PTR
+}
+} // namespace
+
+namespace {
+void set_ocsp_response(SSL *ssl) {
+#ifdef NGHTTP2_OPENSSL_IS_BORINGSSL
+  auto tls_ctx_data =
+      static_cast<TLSContextData *>(SSL_CTX_get_app_data(SSL_get_SSL_CTX(ssl)));
+  auto data = get_ocsp_data(tls_ctx_data);
+
+  if (!data) {
+    return;
+  }
+
+  SSL_set_ocsp_response(ssl, data->data(), data->size());
+#endif // NGHTTP2_OPENSSL_IS_BORINGSSL
+}
+} // namespace
+
+namespace {
 // *al is set to SSL_AD_UNRECOGNIZED_NAME by openssl, so we don't have
 // to set it explicitly.
 int servername_callback(SSL *ssl, int *al, void *arg) {
@@ -167,12 +201,16 @@ int servername_callback(SSL *ssl, int *al, void *arg) {
 
   auto rawhost = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
   if (rawhost == nullptr) {
+    set_ocsp_response(ssl);
+
     return SSL_TLSEXT_ERR_NOACK;
   }
 
   auto len = strlen(rawhost);
   // NI_MAXHOST includes terminal NULL.
   if (len == 0 || len + 1 > NI_MAXHOST) {
+    set_ocsp_response(ssl);
+
     return SSL_TLSEXT_ERR_NOACK;
   }
 
@@ -194,6 +232,8 @@ int servername_callback(SSL *ssl, int *al, void *arg) {
 
   auto idx = cert_tree->lookup(hostname);
   if (idx == -1) {
+    set_ocsp_response(ssl);
+
     return SSL_TLSEXT_ERR_NOACK;
   }
 
@@ -290,24 +330,13 @@ int servername_callback(SSL *ssl, int *al, void *arg) {
 
   SSL_set_SSL_CTX(ssl, ssl_ctx_list[0]);
 
+  set_ocsp_response(ssl);
+
   return SSL_TLSEXT_ERR_OK;
 }
 } // namespace
 
 #ifndef NGHTTP2_OPENSSL_IS_BORINGSSL
-namespace {
-std::shared_ptr<std::vector<uint8_t>>
-get_ocsp_data(TLSContextData *tls_ctx_data) {
-#  ifdef HAVE_ATOMIC_STD_SHARED_PTR
-  return std::atomic_load_explicit(&tls_ctx_data->ocsp_data,
-                                   std::memory_order_acquire);
-#  else  // !HAVE_ATOMIC_STD_SHARED_PTR
-  std::lock_guard<std::mutex> g(tls_ctx_data->mu);
-  return tls_ctx_data->ocsp_data;
-#  endif // !HAVE_ATOMIC_STD_SHARED_PTR
-}
-} // namespace
-
 namespace {
 int ocsp_resp_cb(SSL *ssl, void *arg) {
   auto ssl_ctx = SSL_get_SSL_CTX(ssl);
@@ -817,6 +846,83 @@ unsigned int psk_client_cb(SSL *ssl, const char *hint, char *identity_out,
 } // namespace
 #endif // !OPENSSL_NO_PSK
 
+#if defined(NGHTTP2_OPENSSL_IS_BORINGSSL) && defined(HAVE_LIBBROTLI)
+namespace {
+int cert_compress(SSL *ssl, CBB *out, const uint8_t *in, size_t in_len) {
+  uint8_t *dest;
+
+  size_t compressed_size = BrotliEncoderMaxCompressedSize(in_len);
+  if (compressed_size == 0) {
+    LOG(ERROR) << "BrotliEncoderMaxCompressedSize failed";
+
+    return 0;
+  }
+
+  if (LOG_ENABLED(INFO)) {
+    LOG(INFO) << "Maximum compressed size is " << compressed_size
+              << " bytes against input " << in_len << " bytes";
+  }
+
+  if (!CBB_reserve(out, &dest, compressed_size)) {
+    LOG(ERROR) << "CBB_reserve failed";
+
+    return 0;
+  }
+
+  if (BrotliEncoderCompress(BROTLI_MAX_QUALITY, BROTLI_DEFAULT_WINDOW,
+                            BROTLI_MODE_GENERIC, in_len, in, &compressed_size,
+                            dest) != BROTLI_TRUE) {
+    LOG(ERROR) << "BrotliEncoderCompress failed";
+
+    return 0;
+  }
+
+  if (LOG_ENABLED(INFO)) {
+    LOG(INFO) << "BrotliEncoderCompress succeeded, produced " << compressed_size
+              << " bytes, " << (in_len - compressed_size) * 100 / in_len
+              << "% reduction";
+  }
+
+  if (!CBB_did_write(out, compressed_size)) {
+    LOG(ERROR) << "CBB_did_write failed";
+
+    return 0;
+  }
+
+  return 1;
+}
+
+int cert_decompress(SSL *ssl, CRYPTO_BUFFER **out, size_t uncompressed_len,
+                    const uint8_t *in, size_t in_len) {
+  uint8_t *dest;
+  auto buf = CRYPTO_BUFFER_alloc(&dest, uncompressed_len);
+  auto len = uncompressed_len;
+
+  if (BrotliDecoderDecompress(in_len, in, &len, dest) !=
+      BROTLI_DECODER_RESULT_SUCCESS) {
+    LOG(ERROR) << "BrotliDecoderDecompress failed";
+
+    CRYPTO_BUFFER_free(buf);
+
+    return 0;
+  }
+
+  if (uncompressed_len != len) {
+    LOG(ERROR) << "Unexpected uncompressed length: expected "
+               << uncompressed_len << " bytes, actual " << len << " bytes";
+
+    CRYPTO_BUFFER_free(buf);
+
+    return 0;
+  }
+
+  *out = buf;
+
+  return 1;
+}
+} // namespace
+#endif // NGHTTP2_OPENSSL_IS_BORINGSSL && HAVE_LIBBROTLI
+
 struct TLSProtocol {
   StringRef name;
   long int mask;
@@ -1110,6 +1216,15 @@ SSL_CTX *create_ssl_context(const char *private_key_file, const char *cert_file,
   SSL_CTX_set_psk_server_callback(ssl_ctx, psk_server_cb);
 #endif // !LIBRESSL_NO_PSK
 
+#if defined(NGHTTP2_OPENSSL_IS_BORINGSSL) && defined(HAVE_LIBBROTLI)
+  if (!SSL_CTX_add_cert_compression_alg(
+          ssl_ctx, nghttp2::tls::CERTIFICATE_COMPRESSION_ALGO_BROTLI,
+          cert_compress, cert_decompress)) {
+    LOG(FATAL) << "SSL_CTX_add_cert_compression_alg failed";
+    DIE();
+  }
+#endif // NGHTTP2_OPENSSL_IS_BORINGSSL && HAVE_LIBBROTLI
+
   return ssl_ctx;
 }
 
@@ -1369,6 +1484,15 @@ SSL_CTX *create_quic_ssl_context(const char *private_key_file,
   SSL_CTX_set_psk_server_callback(ssl_ctx, psk_server_cb);
 #  endif // !LIBRESSL_NO_PSK
 
+#  if defined(NGHTTP2_OPENSSL_IS_BORINGSSL) && defined(HAVE_LIBBROTLI)
+  if (!SSL_CTX_add_cert_compression_alg(
+          ssl_ctx, nghttp2::tls::CERTIFICATE_COMPRESSION_ALGO_BROTLI,
+          cert_compress, cert_decompress)) {
+    LOG(FATAL) << "SSL_CTX_add_cert_compression_alg failed";
+    DIE();
+  }
+#  endif // NGHTTP2_OPENSSL_IS_BORINGSSL && HAVE_LIBBROTLI
+
   return ssl_ctx;
 }
 #endif // ENABLE_HTTP3
@@ -1477,6 +1601,15 @@ SSL_CTX *create_ssl_client_context(
 #ifndef OPENSSL_NO_PSK
   SSL_CTX_set_psk_client_callback(ssl_ctx, psk_client_cb);
 #endif // !OPENSSL_NO_PSK
+
+#if defined(NGHTTP2_OPENSSL_IS_BORINGSSL) && defined(HAVE_LIBBROTLI)
+  if (!SSL_CTX_add_cert_compression_alg(
+          ssl_ctx, nghttp2::tls::CERTIFICATE_COMPRESSION_ALGO_BROTLI,
+          cert_compress, cert_decompress)) {
+    LOG(FATAL) << "SSL_CTX_add_cert_compression_alg failed";
+    DIE();
+  }
+#endif // NGHTTP2_OPENSSL_IS_BORINGSSL && HAVE_LIBBROTLI
 
   return ssl_ctx;
 }

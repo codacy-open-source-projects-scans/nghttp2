@@ -100,6 +100,11 @@ To mitigate heap fragmentation in long running server programs
      Alpine Linux currently does not support malloc replacement
      due to musl limitations. See details in issue `#762 <https://github.com/nghttp2/nghttp2/issues/762>`_.
 
+For BoringSSL or aws-lc build, to enable :rfc:`8879` TLS Certificate
+Compression in applications, the following library is required:
+
+* libbrotli-dev >= 1.0.9
+
 To enable mruby support for nghttpx, `mruby
 <https://github.com/mruby/mruby>`_ is required.  We need to build
 mruby with C++ ABI explicitly turned on, and probably need other
@@ -337,15 +342,15 @@ connections alive during reload.
 
 The detailed steps to build HTTP/3 enabled h2load and nghttpx follow.
 
-Build custom OpenSSL:
+Build aws-lc:
 
 .. code-block:: text
 
-   $ git clone --depth 1 -b OpenSSL_1_1_1w+quic https://github.com/quictls/openssl
-   $ cd openssl
-   $ ./config --prefix=$PWD/build --openssldir=/etc/ssl
-   $ make -j$(nproc)
-   $ make install_sw
+   $ git clone --depth 1 -b v1.20.0 https://github.com/aws/aws-lc
+   $ cd aws-lc
+   $ cmake -B build -DDISABLE_GO=ON --install-prefix=$PWD/opt
+   $ make -j$(nproc) -C build
+   $ cmake --install build
    $ cd ..
 
 Build nghttp3:
@@ -367,8 +372,9 @@ Build ngtcp2:
    $ git clone --depth 1 -b v1.2.0 https://github.com/ngtcp2/ngtcp2
    $ cd ngtcp2
    $ autoreconf -i
-   $ ./configure --prefix=$PWD/build --enable-lib-only \
-         PKG_CONFIG_PATH="$PWD/../openssl/build/lib/pkgconfig"
+   $ ./configure --prefix=$PWD/build --enable-lib-only --with-boringssl \
+         BORINGSSL_CFLAGS="-I$PWD/../aws-lc/opt/include" \
+         BORINGSSL_LIBS="-L$PWD/../aws-lc/opt/lib -lssl -lcrypto"
    $ make -j$(nproc)
    $ make install
    $ cd ..
@@ -391,10 +397,10 @@ Build nghttp2:
    $ cd nghttp2
    $ git submodule update --init
    $ autoreconf -i
-   $ ./configure --with-mruby --with-neverbleed --enable-http3 --with-libbpf \
-         CC=clang-14 CXX=clang++-14 \
-         PKG_CONFIG_PATH="$PWD/../openssl/build/lib/pkgconfig:$PWD/../nghttp3/build/lib/pkgconfig:$PWD/../ngtcp2/build/lib/pkgconfig:$PWD/../libbpf/build/lib64/pkgconfig" \
-         LDFLAGS="$LDFLAGS -Wl,-rpath,$PWD/../openssl/build/lib -Wl,-rpath,$PWD/../libbpf/build/lib64"
+   $ ./configure --with-mruby --enable-http3 --with-libbpf \
+         CC=clang-15 CXX=clang++-15 \
+         PKG_CONFIG_PATH="$PWD/../aws-lc/opt/lib/pkgconfig:$PWD/../nghttp3/build/lib/pkgconfig:$PWD/../ngtcp2/build/lib/pkgconfig:$PWD/../libbpf/build/lib64/pkgconfig" \
+         LDFLAGS="$LDFLAGS -Wl,-rpath,$PWD/../aws-lc/opt/lib -Wl,-rpath,$PWD/../libbpf/build/lib64"
    $ make -j$(nproc)
 
 The eBPF program ``reuseport_kern.o`` should be found under bpf

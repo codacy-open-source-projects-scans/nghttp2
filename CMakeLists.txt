@@ -22,7 +22,7 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.14)
 # XXX using 1.8.90 instead of 1.9.0-DEV
 project(nghttp2 VERSION 1.59.90)
 
@@ -60,6 +60,8 @@ if(NOT ENABLE_LIB_ONLY)
   find_package(Libev 4.11)
   find_package(Libcares 1.7.5)
   find_package(ZLIB 1.2.3)
+  find_package(Libbrotlienc 1.0.9)
+  find_package(Libbrotlidec 1.0.9)
 endif()
 
 find_package(OpenSSL 1.1.1)
@@ -221,6 +223,13 @@ else()
 endif()
 # jemalloc
 set(HAVE_JEMALLOC   ${JEMALLOC_FOUND})
+
+# libbrotli (for src)
+set(HAVE_LIBBROTLIENC ${LIBBROTLIENC_FOUND})
+set(HAVE_LIBBROTLIDEC ${LIBBROTLIDEC_FOUND})
+if(LIBBROTLIENC_FOUND AND LIBBROTLIDEC_FOUND)
+  set(HAVE_LIBBROTLI 1)
+endif()
 
 # libbpf (for bpf)
 set(HAVE_LIBBPF ${LIBBPF_FOUND})
@@ -474,6 +483,8 @@ message(STATUS "summary of build options:
       Jemalloc:       ${HAVE_JEMALLOC} (LIBS='${JEMALLOC_LIBRARIES}')
       Zlib:           ${HAVE_ZLIB} (LIBS='${ZLIB_LIBRARIES}')
       Systemd:        ${HAVE_SYSTEMD} (LIBS='${SYSTEMD_LIBRARIES}')
+      Libbrotlienc:   ${HAVE_LIBBROTLIENC} (LIBS='${LIBBROTLIENC_LIBRARIES}')
+      Libbrotlidec:   ${HAVE_LIBBROTLIDEC} (LIBS='${LIBBROTLIDEC_LIBRARIES}')
     Third-party:
       http-parser:    ${ENABLE_THIRD_PARTY}
       MRuby:          ${HAVE_MRUBY}

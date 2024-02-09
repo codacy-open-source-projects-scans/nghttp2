@@ -21,6 +21,8 @@ include_directories(
   ${JANSSON_INCLUDE_DIRS}
   ${ZLIB_INCLUDE_DIRS}
   ${LIBBPF_INCLUDE_DIRS}
+  ${LIBBROTLIENC_INCLUDE_DIRS}
+  ${LIBBROTLIDEC_INCLUDE_DIRS}
 )
 
 # XXX per-target?
@@ -38,6 +40,8 @@ link_libraries(
   ${ZLIB_LIBRARIES}
   ${APP_LIBRARIES}
   ${LIBBPF_LIBRARIES}
+  ${LIBBROTLIENC_LIBRARIES}
+  ${LIBBROTLIDEC_LIBRARIES}
 )
 
 if(ENABLE_APP)
@@ -221,8 +225,7 @@ if(ENABLE_APP)
     $<TARGET_OBJECTS:url-parser>
   )
 
-  install(TARGETS nghttp nghttpd nghttpx h2load
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  install(TARGETS nghttp nghttpd nghttpx h2load)
 endif()
 
 if(ENABLE_HPACK_TOOLS)
@@ -238,6 +241,5 @@ if(ENABLE_HPACK_TOOLS)
   )
   add_executable(inflatehd ${inflatehd_SOURCES})
   add_executable(deflatehd ${deflatehd_SOURCES})
-  install(TARGETS inflatehd deflatehd
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  install(TARGETS inflatehd deflatehd)
 endif()
