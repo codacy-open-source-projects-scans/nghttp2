@@ -48,11 +48,6 @@ The following package is required to build the libnghttp2 library:
 
 * pkg-config >= 0.20
 
-To build and run the unit test programs, the following package is
-required:
-
-* cunit >= 2.1
-
 To build the documentation, you need to install:
 
 * sphinx (http://sphinx-doc.org/)
@@ -210,7 +205,7 @@ required packages:
 
     sudo apt-get install g++ clang make binutils autoconf automake \
       autotools-dev libtool pkg-config \
-      zlib1g-dev libcunit1-dev libssl-dev libxml2-dev libev-dev \
+      zlib1g-dev libssl-dev libxml2-dev libev-dev \
       libevent-dev libjansson-dev \
       libc-ares-dev libjemalloc-dev libsystemd-dev \
       ruby-dev bison libelf-dev
@@ -485,7 +480,7 @@ Previously nghttp2 library did not send client magic, which is first
 24 bytes byte string of client connection preface, and client
 applications have to send it by themselves.  Since v1.0.0, client
 magic is sent by library via first call of ``nghttp2_session_send()``
-or ``nghttp2_session_mem_send()``.
+or ``nghttp2_session_mem_send2()``.
 
 The client applications which send client magic must remove the
 relevant code.
@@ -1451,17 +1446,6 @@ full real name when contributing!
 See `Contribution Guidelines
 <https://nghttp2.org/documentation/contribute.html>`_ for more
 details.
-
-Reporting vulnerability
------------------------
-
-If you find a vulnerability in our software, please send the email to
-"tatsuhiro.t at gmail dot com" about its details instead of submitting
-issues on github issue page.  It is a standard practice not to
-disclose vulnerability information publicly until a fixed version is
-released, or mitigation is worked out.
-
-In the future, we may setup a dedicated mail address for this purpose.
 
 Versioning
 ----------
