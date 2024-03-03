@@ -635,7 +635,6 @@ int Http3Upstream::init(const UpstreamAddr *faddr, const Address &remote_addr,
   settings.cc_algo = quicconf.upstream.congestion_controller;
   settings.max_window = http3conf.upstream.max_connection_window_size;
   settings.max_stream_window = http3conf.upstream.max_window_size;
-  settings.max_tx_udp_payload_size = SHRPX_QUIC_MAX_UDP_PAYLOAD_SIZE;
   settings.rand_ctx.native_handle = &worker->get_randgen();
   settings.token = token;
   settings.tokenlen = tokenlen;
@@ -783,7 +782,9 @@ int Http3Upstream::write_streams() {
   auto path_max_udp_payload_size =
       ngtcp2_conn_get_path_max_tx_udp_payload_size(conn_);
 #endif // UDP_SEGMENT
-  auto max_pktcnt = ngtcp2_conn_get_send_quantum(conn_) / max_udp_payload_size;
+  auto max_pktcnt =
+      std::max(ngtcp2_conn_get_send_quantum(conn_) / max_udp_payload_size,
+               static_cast<size_t>(1));
   ngtcp2_pkt_info pi, prev_pi;
   uint8_t *bufpos = tx_.data.get();
   ngtcp2_path_storage ps, prev_ps;
@@ -2148,6 +2149,11 @@ int Http3Upstream::http_recv_request_header(Downstream *downstream,
 
     // just ignore if this is a trailer part.
     if (trailer) {
+      if (shutdown_stream_read(downstream->get_stream_id(),
+                               NGHTTP3_H3_NO_ERROR) != 0) {
+        return -1;
+      }
+
       return 0;
     }
 
