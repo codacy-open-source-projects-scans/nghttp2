@@ -420,9 +420,12 @@ if test "x${request_openssl}" != "xno"; then
   if test "x${have_openssl}" = "xno"; then
     AC_MSG_NOTICE($OPENSSL_PKG_ERRORS)
   else
-    save_CFLAGS="$CFLAGS"
+    # Use C++ compiler because boringssl needs C++ runtime.
+    AC_LANG_PUSH(C++)
+
+    save_CXXFLAGS="$CXXFLAGS"
     save_LIBS="$LIBS"
-    CFLAGS="$OPENSSL_CFLAGS $CFLAGS"
+    CXXFLAGS="$OPENSSL_CFLAGS $CXXFLAGS"
     LIBS="$OPENSSL_LIBS $LIBS"
 
     # quictls/openssl has SSL_provide_quic_data.  boringssl also has
@@ -432,7 +435,7 @@ if test "x${request_openssl}" != "xno"; then
     AC_LINK_IFELSE([AC_LANG_PROGRAM([[
       #include <openssl/ssl.h>
     ]], [[
-      SSL_provide_quic_data(NULL, 0, NULL, 0);
+      SSL_provide_quic_data(NULL, (ssl_encryption_level_t)0, NULL, 0);
     ]])],
     [AC_MSG_RESULT([yes]); have_ssl_provide_quic_data=yes],
     [AC_MSG_RESULT([no]); have_ssl_provide_quic_data=no])
@@ -448,8 +451,10 @@ if test "x${request_openssl}" != "xno"; then
     [AC_MSG_RESULT([yes]); have_boringssl_quic=yes],
     [AC_MSG_RESULT([no]); have_boringssl_quic=no])
 
-    CFLAGS="$save_CFLAGS"
+    CXXFLAGS="$save_CXXFLAGS"
     LIBS="$save_LIBS"
+
+    AC_LANG_POP()
   fi
 fi
 
@@ -476,7 +481,7 @@ fi
 # ngtcp2 (for src)
 have_libngtcp2=no
 if test "x${request_libngtcp2}" != "xno"; then
-  PKG_CHECK_MODULES([LIBNGTCP2], [libngtcp2 >= 1.0.0], [have_libngtcp2=yes],
+  PKG_CHECK_MODULES([LIBNGTCP2], [libngtcp2 >= 1.4.0], [have_libngtcp2=yes],
                     [have_libngtcp2=no])
   if test "x${have_libngtcp2}" = "xno"; then
     AC_MSG_NOTICE($LIBNGTCP2_PKG_ERRORS)

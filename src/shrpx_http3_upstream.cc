@@ -118,7 +118,6 @@ Http3Upstream::Http3Upstream(ClientHandler *handler)
       httpconn_{nullptr},
       downstream_queue_{downstream_queue_size(handler->get_worker()),
                         !get_config()->http2_proxy},
-      retry_close_{false},
       tx_{
           .data = std::unique_ptr<uint8_t[]>(new uint8_t[64_k]),
       } {
@@ -250,8 +249,9 @@ void Http3Upstream::http_begin_request_headers(int64_t stream_id) {
   nghttp3_conn_set_stream_user_data(httpconn_, stream_id, downstream.get());
 
   downstream->reset_upstream_rtimer();
+  downstream->repeat_header_timer();
 
-  handler_->repeat_read_timer();
+  handler_->stop_read_timer();
 
   auto &req = downstream->request();
   req.http_major = 3;
@@ -997,7 +997,18 @@ int Http3Upstream::write_streams() {
   return 0;
 }
 
-int Http3Upstream::on_timeout(Downstream *downstream) { return 0; }
+int Http3Upstream::on_timeout(Downstream *downstream) {
+  if (LOG_ENABLED(INFO)) {
+    ULOG(INFO, this) << "Stream timeout stream_id="
+                     << downstream->get_stream_id();
+  }
+
+  shutdown_stream(downstream, NGHTTP3_H3_INTERNAL_ERROR);
+
+  handler_->signal_write();
+
+  return 0;
+}
 
 int Http3Upstream::on_downstream_abort_request(Downstream *downstream,
                                                unsigned int status_code) {
@@ -1528,8 +1539,13 @@ void Http3Upstream::on_handler_delete() {
     quic_conn_handler->remove_connection_id(cid);
   }
 
-  if (retry_close_ || last_error_.type == NGTCP2_CCERR_TYPE_IDLE_CLOSE) {
+  switch (last_error_.type) {
+  case NGTCP2_CCERR_TYPE_IDLE_CLOSE:
+  case NGTCP2_CCERR_TYPE_DROP_CONN:
+  case NGTCP2_CCERR_TYPE_RETRY:
     return;
+  default:
+    break;
   }
 
   // If this is not idle close, send CONNECTION_CLOSE.
@@ -1823,7 +1839,8 @@ int Http3Upstream::on_read(const UpstreamAddr *faddr,
         return -1;
       }
 
-      retry_close_ = true;
+      // Overwrite error if any is set
+      ngtcp2_ccerr_set_liberr(&last_error_, rv, nullptr, 0);
 
       quic_conn_handler->send_retry(handler_->get_upstream_addr(), vc.version,
                                     vc.dcid, vc.dcidlen, vc.scid, vc.scidlen,
@@ -1838,6 +1855,9 @@ int Http3Upstream::on_read(const UpstreamAddr *faddr,
       }
       break;
     case NGTCP2_ERR_DROP_CONN:
+      // Overwrite error if any is set
+      ngtcp2_ccerr_set_liberr(&last_error_, rv, nullptr, 0);
+
       return -1;
     default:
       if (!last_error_.error_code) {
@@ -2187,7 +2207,6 @@ namespace {
 int http_end_request_headers(nghttp3_conn *conn, int64_t stream_id, int fin,
                              void *user_data, void *stream_user_data) {
   auto upstream = static_cast<Http3Upstream *>(user_data);
-  auto handler = upstream->get_client_handler();
   auto downstream = static_cast<Downstream *>(stream_user_data);
 
   if (!downstream || downstream->get_stop_reading()) {
@@ -2199,7 +2218,7 @@ int http_end_request_headers(nghttp3_conn *conn, int64_t stream_id, int fin,
   }
 
   downstream->reset_upstream_rtimer();
-  handler->stop_read_timer();
+  downstream->stop_header_timer();
 
   return 0;
 }
