@@ -87,15 +87,6 @@ bool recorded(const std::chrono::steady_clock::time_point &t) {
 }
 } // namespace
 
-namespace {
-std::ofstream keylog_file;
-void keylog_callback(const SSL *ssl, const char *line) {
-  keylog_file.write(line, strlen(line));
-  keylog_file.put('\n');
-  keylog_file.flush();
-}
-} // namespace
-
 Config::Config()
     : ciphers(tls::DEFAULT_CIPHER_LIST),
       tls13_ciphers("TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_"
@@ -2977,12 +2968,10 @@ int main(int argc, char **argv) {
 
   SSL_CTX_set_alpn_protos(ssl_ctx, proto_list.data(), proto_list.size());
 
-  auto keylog_filename = getenv("SSLKEYLOGFILE");
-  if (keylog_filename) {
-    keylog_file.open(keylog_filename, std::ios_base::app);
-    if (keylog_file) {
-      SSL_CTX_set_keylog_callback(ssl_ctx, keylog_callback);
-    }
+  if (tls::setup_keylog_callback(ssl_ctx) != 0) {
+    std::cerr << "Failed to setup keylog" << std::endl;
+
+    exit(EXIT_FAILURE);
   }
 
 #if defined(NGHTTP2_OPENSSL_IS_BORINGSSL) && defined(HAVE_LIBBROTLI)
@@ -3002,7 +2991,7 @@ int main(int argc, char **argv) {
   shared_nva.emplace_back("user-agent", user_agent);
 
   // list header fields that can be overridden.
-  auto override_hdrs = make_array<std::string>(":authority", ":host", ":method",
+  auto override_hdrs = make_array<std::string>(":authority", "host", ":method",
                                                ":scheme", "user-agent");
 
   for (auto &kv : config.custom_headers) {
@@ -3010,7 +2999,7 @@ int main(int argc, char **argv) {
                   kv.name) != std::end(override_hdrs)) {
       // override header
       for (auto &nv : shared_nva) {
-        if ((nv.name == ":authority" && kv.name == ":host") ||
+        if ((nv.name == ":authority" && kv.name == "host") ||
             (nv.name == kv.name)) {
           nv.value = kv.value;
         }
