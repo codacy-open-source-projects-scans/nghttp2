@@ -282,9 +282,9 @@ read_quic_secret_file(const StringRef &path) {
 
     assert(static_cast<size_t>(p - std::begin(s)) == expectedlen * 2);
 
-    qkm.id = qkm.reserved[0] & 0xc0;
+    qkm.id = qkm.reserved[0] & SHRPX_QUIC_DCID_KM_ID_MASK;
 
-    if (kms.size() == 4) {
+    if (kms.size() == 8) {
       break;
     }
   }
@@ -2975,13 +2975,28 @@ int parse_config(Config *config, int optid, const StringRef &opt,
 
     return 0;
   }
-  case SHRPX_OPTID_WORKERS:
+  case SHRPX_OPTID_WORKERS: {
 #ifdef NOTHREADS
     LOG(WARN) << "Threading disabled at build time, no threads created.";
     return 0;
 #else  // !NOTHREADS
-    return parse_uint(&config->num_worker, opt, optarg);
+    size_t n;
+
+    if (parse_uint(&n, opt, optarg) != 0) {
+      return -1;
+    }
+
+    if (n > 65530) {
+      LOG(ERROR) << opt << ": the number of workers must not exceed 65530";
+
+      return -1;
+    }
+
+    config->num_worker = n;
+
+    return 0;
 #endif // !NOTHREADS
+  }
   case SHRPX_OPTID_HTTP2_MAX_CONCURRENT_STREAMS: {
     LOG(WARN) << opt << ": deprecated. Use "
               << SHRPX_OPT_FRONTEND_HTTP2_MAX_CONCURRENT_STREAMS << " and "
@@ -4144,12 +4159,13 @@ int parse_config(Config *config, int optid, const StringRef &opt,
     return 0;
   case SHRPX_OPTID_QUIC_SERVER_ID:
 #ifdef ENABLE_HTTP3
-    if (optarg.size() != config->quic.server_id.size() * 2 ||
+    if (optarg.size() != sizeof(config->quic.server_id) * 2 ||
         !util::is_hex_string(optarg)) {
       LOG(ERROR) << opt << ": must be a hex-string";
       return -1;
     }
-    util::decode_hex(std::begin(config->quic.server_id), optarg);
+    util::decode_hex(reinterpret_cast<uint8_t *>(&config->quic.server_id),
+                     optarg);
 #endif // ENABLE_HTTP3
 
     return 0;
@@ -4718,6 +4734,7 @@ int resolve_hostname(Address *addr, const char *hostname, uint16_t port,
 #ifdef ENABLE_HTTP3
 QUICKeyingMaterial::QUICKeyingMaterial(QUICKeyingMaterial &&other) noexcept
     : cid_encryption_ctx{std::exchange(other.cid_encryption_ctx, nullptr)},
+      cid_decryption_ctx{std::exchange(other.cid_decryption_ctx, nullptr)},
       reserved{other.reserved},
       secret{other.secret},
       salt{other.salt},
@@ -4728,11 +4745,16 @@ QUICKeyingMaterial::~QUICKeyingMaterial() noexcept {
   if (cid_encryption_ctx) {
     EVP_CIPHER_CTX_free(cid_encryption_ctx);
   }
+
+  if (cid_decryption_ctx) {
+    EVP_CIPHER_CTX_free(cid_decryption_ctx);
+  }
 }
 
 QUICKeyingMaterial &
 QUICKeyingMaterial::operator=(QUICKeyingMaterial &&other) noexcept {
   cid_encryption_ctx = std::exchange(other.cid_encryption_ctx, nullptr);
+  cid_decryption_ctx = std::exchange(other.cid_decryption_ctx, nullptr);
   reserved = other.reserved;
   secret = other.secret;
   salt = other.salt;

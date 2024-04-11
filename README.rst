@@ -127,7 +127,7 @@ following libraries are required:
   <https://github.com/quictls/openssl/tree/OpenSSL_1_1_1w+quic>`_; or
   LibreSSL (does not support 0RTT); or aws-lc; or
   `BoringSSL <https://boringssl.googlesource.com/boringssl/>`_ (commit
-  fae0964b3d44e94ca2a2d21f86e61dabe683d130)
+  077d4d2b1a768028603ae1b26287224d7f985d1f)
 * `ngtcp2 <https://github.com/ngtcp2/ngtcp2>`_ >= 1.4.0
 * `nghttp3 <https://github.com/ngtcp2/nghttp3>`_ >= 1.1.0
 
@@ -149,9 +149,9 @@ requires eBPF program for reloading its configuration and hot swapping
 its executable.
 
 Compiling libnghttp2 C source code requires a C99 compiler.  gcc 4.8
-is known to be adequate.  In order to compile the C++ source code, gcc
->= 6.0 or clang >= 6.0 is required.  C++ source code requires C++14
-language features.
+is known to be adequate.  In order to compile the C++ source code,
+C++20 compliant compiler is required.  At least g++ >= 1.12 and
+clang++ >= 1.15 are known to work.
 
 .. note::
 

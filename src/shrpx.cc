@@ -141,11 +141,13 @@ constexpr auto ENV_ACCEPT_PREFIX = StringRef::from_lit("NGHTTPX_ACCEPT_");
 constexpr auto ENV_ORIG_PID = StringRef::from_lit("NGHTTPX_ORIG_PID");
 
 // Prefix of environment variables to tell new binary the QUIC IPC
-// file descriptor and CID prefix of the lingering worker process.
-// The value must be comma separated parameters:
-// <FD>,<CID_PREFIX_0>,<CID_PREFIX_1>,...  <FD> is the file
-// descriptor.  <CID_PREFIX_I> is the I-th CID prefix in hex encoded
-// string.
+// file descriptor and Worker ID of the lingering worker process.  The
+// value must be comma separated parameters:
+//
+// <FD>,<WORKER_ID_0>,<WORKER_ID_1>,...,<WORKER_ID_I>
+//
+// <FD> is the file descriptor.  <WORKER_ID_I> is the I-th Worker ID
+// in hex encoded string.
 constexpr auto ENV_QUIC_WORKER_PROCESS_PREFIX =
     StringRef::from_lit("NGHTTPX_QUIC_WORKER_PROCESS_");
 
@@ -203,9 +205,7 @@ struct WorkerProcess {
   WorkerProcess(struct ev_loop *loop, pid_t worker_pid, int ipc_fd
 #ifdef ENABLE_HTTP3
                 ,
-                int quic_ipc_fd,
-                const std::vector<std::array<uint8_t, SHRPX_QUIC_CID_PREFIXLEN>>
-                    &cid_prefixes
+                int quic_ipc_fd, std::vector<WorkerID> worker_ids, uint16_t seq
 #endif // ENABLE_HTTP3
                 )
       : loop(loop),
@@ -214,7 +214,8 @@ struct WorkerProcess {
 #ifdef ENABLE_HTTP3
         ,
         quic_ipc_fd(quic_ipc_fd),
-        cid_prefixes(cid_prefixes)
+        worker_ids(std::move(worker_ids)),
+        seq(seq)
 #endif // ENABLE_HTTP3
   {
     ev_child_init(&worker_process_childev, worker_process_child_cb, worker_pid,
@@ -245,7 +246,8 @@ struct WorkerProcess {
   std::chrono::steady_clock::time_point termination_deadline;
 #ifdef ENABLE_HTTP3
   int quic_ipc_fd;
-  std::vector<std::array<uint8_t, SHRPX_QUIC_CID_PREFIXLEN>> cid_prefixes;
+  std::vector<WorkerID> worker_ids;
+  uint16_t seq;
 #endif // ENABLE_HTTP3
 };
 
@@ -255,6 +257,10 @@ void reload_config();
 
 namespace {
 std::deque<std::unique_ptr<WorkerProcess>> worker_processes;
+
+#ifdef ENABLE_HTTP3
+uint16_t worker_process_seq;
+#endif // ENABLE_HTTP3
 } // namespace
 
 namespace {
@@ -582,9 +588,10 @@ void exec_binary() {
     s += util::utos(i + 1);
     s += '=';
     s += util::utos(wp->quic_ipc_fd);
-    for (auto &cid_prefix : wp->cid_prefixes) {
+    for (auto &wid : wp->worker_ids) {
       s += ',';
-      s += util::format_hex(cid_prefix);
+      s += util::format_hex(reinterpret_cast<const unsigned char *>(&wid),
+                            sizeof(wid));
     }
 
     quic_lwps.emplace_back(s);
@@ -1223,7 +1230,7 @@ std::vector<QUICLingeringWorkerProcess>
 namespace {
 std::vector<QUICLingeringWorkerProcess>
 get_inherited_quic_lingering_worker_process_from_env() {
-  std::vector<QUICLingeringWorkerProcess> iwps;
+  std::vector<QUICLingeringWorkerProcess> lwps;
 
   for (size_t i = 1;; ++i) {
     auto name = ENV_QUIC_WORKER_PROCESS_PREFIX.str();
@@ -1258,26 +1265,27 @@ get_inherited_quic_lingering_worker_process_from_env() {
 
     util::make_socket_closeonexec(fd);
 
-    std::vector<std::array<uint8_t, SHRPX_QUIC_CID_PREFIXLEN>> cid_prefixes;
+    std::vector<WorkerID> worker_ids;
 
     auto p = end_fd + 1;
     for (;;) {
       auto end = std::find(p, envend, ',');
 
-      auto hex_cid_prefix = StringRef{p, end};
-      if (hex_cid_prefix.size() != SHRPX_QUIC_CID_PREFIXLEN * 2 ||
-          !util::is_hex_string(hex_cid_prefix)) {
-        LOG(WARN) << "Found invalid CID prefix=" << hex_cid_prefix;
+      auto hex_wid = StringRef{p, end};
+      if (hex_wid.size() != SHRPX_QUIC_WORKER_IDLEN * 2 ||
+          !util::is_hex_string(hex_wid)) {
+        LOG(WARN) << "Found invalid WorkerID=" << hex_wid;
         break;
       }
 
       if (LOG_ENABLED(INFO)) {
-        LOG(INFO) << "Inherit worker process CID prefix=" << hex_cid_prefix;
+        LOG(INFO) << "Inherit worker process WorkerID=" << hex_wid;
       }
 
-      cid_prefixes.emplace_back();
+      worker_ids.emplace_back();
 
-      util::decode_hex(std::begin(cid_prefixes.back()), hex_cid_prefix);
+      util::decode_hex(reinterpret_cast<uint8_t *>(&worker_ids.back()),
+                       hex_wid);
 
       if (end == envend) {
         break;
@@ -1286,10 +1294,20 @@ get_inherited_quic_lingering_worker_process_from_env() {
       p = end + 1;
     }
 
-    iwps.emplace_back(std::move(cid_prefixes), fd);
+    lwps.emplace_back(std::move(worker_ids), fd);
   }
 
-  return iwps;
+  if (!lwps.empty()) {
+    const auto &lwp = lwps.back();
+
+    if (!lwp.worker_ids.empty() &&
+        worker_process_seq <= lwp.worker_ids[0].worker_process) {
+      worker_process_seq = lwp.worker_ids[0].worker_process;
+      ++worker_process_seq;
+    }
+  }
+
+  return lwps;
 }
 } // namespace
 #endif // ENABLE_HTTP3
@@ -1418,32 +1436,33 @@ int create_quic_ipc_socket(std::array<int, 2> &quic_ipc_fd) {
 } // namespace
 
 namespace {
-int generate_cid_prefix(
-    std::vector<std::array<uint8_t, SHRPX_QUIC_CID_PREFIXLEN>> &cid_prefixes,
-    const Config *config) {
+int generate_worker_id(std::vector<WorkerID> &worker_ids, uint16_t wp_seq,
+                       const Config *config) {
   auto &apiconf = config->api;
   auto &quicconf = config->quic;
 
-  size_t num_cid_prefix;
+  size_t num_wid;
   if (config->single_thread) {
-    num_cid_prefix = 1;
+    num_wid = 1;
   } else {
-    num_cid_prefix = config->num_worker;
+    num_wid = config->num_worker;
 
     // API endpoint occupies the one dedicated worker thread.
-    // Although such worker never gets QUIC traffic, we create CID
-    // prefix for it to make code a bit simpler.
+    // Although such worker never gets QUIC traffic, we create Worker
+    // ID for it to make code a bit simpler.
     if (apiconf.enabled) {
-      ++num_cid_prefix;
+      ++num_wid;
     }
   }
 
-  cid_prefixes.resize(num_cid_prefix);
+  worker_ids.resize(num_wid);
 
-  for (auto &cid_prefix : cid_prefixes) {
-    if (create_cid_prefix(cid_prefix.data(), quicconf.server_id.data()) != 0) {
-      return -1;
-    }
+  uint16_t idx = 0;
+
+  for (auto &wid : worker_ids) {
+    wid.server = quicconf.server_id;
+    wid.worker_process = wp_seq;
+    wid.thread = idx++;
   }
 
   return 0;
@@ -1458,7 +1477,7 @@ collect_quic_lingering_worker_processes() {
       std::end(inherited_quic_lingering_worker_processes)};
 
   for (auto &wp : worker_processes) {
-    quic_lwps.emplace_back(wp->cid_prefixes, wp->quic_ipc_fd);
+    quic_lwps.emplace_back(wp->worker_ids, wp->quic_ipc_fd);
   }
 
   return quic_lwps;
@@ -1596,19 +1615,17 @@ namespace {
 // |main_ipc_fd|.  In child process, we will close file descriptors
 // which are inherited from previous configuration/process, but not
 // used in the current configuration.
-pid_t fork_worker_process(
-    int &main_ipc_fd
+pid_t fork_worker_process(int &main_ipc_fd
 #ifdef ENABLE_HTTP3
-    ,
-    int &wp_quic_ipc_fd
+                          ,
+                          int &wp_quic_ipc_fd
 #endif // ENABLE_HTTP3
-    ,
-    const std::vector<InheritedAddr> &iaddrs
+                          ,
+                          const std::vector<InheritedAddr> &iaddrs
 #ifdef ENABLE_HTTP3
-    ,
-    const std::vector<std::array<uint8_t, SHRPX_QUIC_CID_PREFIXLEN>>
-        &cid_prefixes,
-    const std::vector<QUICLingeringWorkerProcess> &quic_lwps
+                          ,
+                          std::vector<WorkerID> worker_ids,
+                          std::vector<QUICLingeringWorkerProcess> quic_lwps
 #endif // ENABLE_HTTP3
 ) {
   std::array<char, STRERROR_BUFSIZE> errbuf;
@@ -1714,9 +1731,9 @@ pid_t fork_worker_process(
         .ipc_fd = ipc_fd[0],
         .ready_ipc_fd = worker_process_ready_ipc_fd[1],
 #ifdef ENABLE_HTTP3
-        .cid_prefixes = cid_prefixes,
+        .worker_ids = std::move(worker_ids),
         .quic_ipc_fd = quic_ipc_fd[0],
-        .quic_lingering_worker_processes = quic_lwps,
+        .quic_lingering_worker_processes = std::move(quic_lwps),
 #endif // ENABLE_HTTP3
     };
     rv = worker_process_event_loop(&wpconf);
@@ -1835,9 +1852,9 @@ int event_loop() {
 
   auto quic_lwps = collect_quic_lingering_worker_processes();
 
-  std::vector<std::array<uint8_t, SHRPX_QUIC_CID_PREFIXLEN>> cid_prefixes;
+  std::vector<WorkerID> worker_ids;
 
-  if (generate_cid_prefix(cid_prefixes, config) != 0) {
+  if (generate_worker_id(worker_ids, worker_process_seq, config) != 0) {
     return -1;
   }
 #endif // ENABLE_HTTP3
@@ -1858,7 +1875,7 @@ int event_loop() {
                                  {}
 #ifdef ENABLE_HTTP3
                                  ,
-                                 cid_prefixes, quic_lwps
+                                 worker_ids, std::move(quic_lwps)
 #endif // ENABLE_HTTP3
   );
 
@@ -1869,12 +1886,13 @@ int event_loop() {
   ev_timer_init(&worker_process_grace_period_timer,
                 worker_process_grace_period_timercb, 0., 0.);
 
-  worker_process_add(std::make_unique<WorkerProcess>(loop, pid, ipc_fd
+  worker_process_add(std::make_unique<WorkerProcess>(
+      loop, pid, ipc_fd
 #ifdef ENABLE_HTTP3
-                                                     ,
-                                                     quic_ipc_fd, cid_prefixes
+      ,
+      quic_ipc_fd, std::move(worker_ids), worker_process_seq++
 #endif // ENABLE_HTTP3
-                                                     ));
+      ));
 
   // Write PID file when we are ready to accept connection from peer.
   // This makes easier to write restart script for nghttpx.  Because
@@ -2089,7 +2107,8 @@ void fill_default_config(Config *config) {
         static_cast<ev_tstamp>(NGTCP2_DEFAULT_INITIAL_RTT) / NGTCP2_SECONDS;
   }
 
-  if (RAND_bytes(quicconf.server_id.data(), quicconf.server_id.size()) != 1) {
+  if (RAND_bytes(reinterpret_cast<unsigned char *>(&quicconf.server_id),
+                 sizeof(quicconf.server_id)) != 1) {
     assert(0);
     abort();
   }
@@ -3536,12 +3555,12 @@ HTTP/3 and QUIC:
               encrypting tokens and Connection IDs.  It is not used to
               encrypt  QUIC  packets.  Each  line  of  this file  must
               contain  exactly  136  bytes  hex-encoded  string  (when
-              decoded the byte string is  68 bytes long).  The first 2
+              decoded the byte string is  68 bytes long).  The first 3
               bits of  decoded byte  string are  used to  identify the
               keying material.  An  empty line or a  line which starts
               '#'  is ignored.   The file  can contain  more than  one
-              keying materials.  Because the  identifier is 2 bits, at
-              most 4 keying materials are  read and the remaining data
+              keying materials.  Because the  identifier is 3 bits, at
+              most 8 keying materials are  read and the remaining data
               is discarded.  The first keying  material in the file is
               primarily  used for  encryption and  decryption for  new
               connection.  The other ones are used to decrypt data for
@@ -4003,9 +4022,10 @@ void reload_config() {
 
   auto quic_lwps = collect_quic_lingering_worker_processes();
 
-  std::vector<std::array<uint8_t, SHRPX_QUIC_CID_PREFIXLEN>> cid_prefixes;
+  std::vector<WorkerID> worker_ids;
 
-  if (generate_cid_prefix(cid_prefixes, new_config.get()) != 0) {
+  if (generate_worker_id(worker_ids, worker_process_seq, new_config.get()) !=
+      0) {
     close_not_inherited_fd(new_config.get(), iaddrs);
     return;
   }
@@ -4026,7 +4046,7 @@ void reload_config() {
                                  iaddrs
 #ifdef ENABLE_HTTP3
                                  ,
-                                 cid_prefixes, quic_lwps
+                                 worker_ids, std::move(quic_lwps)
 #endif // ENABLE_HTTP3
   );
 
@@ -4041,12 +4061,13 @@ void reload_config() {
 
   close_unused_inherited_addr(iaddrs);
 
-  worker_process_add(std::make_unique<WorkerProcess>(loop, pid, ipc_fd
+  worker_process_add(std::make_unique<WorkerProcess>(
+      loop, pid, ipc_fd
 #ifdef ENABLE_HTTP3
-                                                     ,
-                                                     quic_ipc_fd, cid_prefixes
+      ,
+      quic_ipc_fd, std::move(worker_ids), worker_process_seq++
 #endif // ENABLE_HTTP3
-                                                     ));
+      ));
 
   worker_process_adjust_limit();
 

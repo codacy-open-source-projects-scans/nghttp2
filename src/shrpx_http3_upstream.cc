@@ -211,8 +211,10 @@ int get_new_connection_id(ngtcp2_conn *conn, ngtcp2_cid *cid, uint8_t *token,
   auto &qkms = conn_handler->get_quic_keying_materials();
   auto &qkm = qkms->keying_materials.front();
 
-  if (generate_quic_connection_id(*cid, cidlen, worker->get_cid_prefix(),
-                                  qkm.id, qkm.cid_encryption_ctx) != 0) {
+  assert(SHRPX_QUIC_SCIDLEN == cidlen);
+
+  if (generate_quic_connection_id(*cid, worker->get_worker_id(), qkm.id,
+                                  qkm.cid_encryption_ctx) != 0) {
     return NGTCP2_ERR_CALLBACK_FAILURE;
   }
 
@@ -609,8 +611,7 @@ int Http3Upstream::init(const UpstreamAddr *faddr, const Address &remote_addr,
 
   ngtcp2_cid scid;
 
-  if (generate_quic_connection_id(scid, SHRPX_QUIC_SCIDLEN,
-                                  worker->get_cid_prefix(), qkm.id,
+  if (generate_quic_connection_id(scid, worker->get_worker_id(), qkm.id,
                                   qkm.cid_encryption_ctx) != 0) {
     return -1;
   }
@@ -1699,9 +1700,15 @@ int Http3Upstream::send_reply(Downstream *downstream, const uint8_t *body,
 
   nghttp3_data_reader data_read, *data_read_ptr = nullptr;
 
-  if (bodylen) {
+  const auto &req = downstream->request();
+
+  if (req.method != HTTP_HEAD && bodylen) {
     data_read.read_data = downstream_read_data_callback;
     data_read_ptr = &data_read;
+
+    auto buf = downstream->get_response_buf();
+
+    buf->append(body, bodylen);
   }
 
   const auto &resp = downstream->response();
@@ -1750,10 +1757,6 @@ int Http3Upstream::send_reply(Downstream *downstream, const uint8_t *body,
                       << nghttp3_strerror(rv);
     return -1;
   }
-
-  auto buf = downstream->get_response_buf();
-
-  buf->append(body, bodylen);
 
   downstream->set_response_state(DownstreamState::MSG_COMPLETE);
 
@@ -2723,12 +2726,21 @@ int Http3Upstream::error_reply(Downstream *downstream,
 
   auto html = http::create_error_html(balloc, status_code);
   resp.http_status = status_code;
-  auto body = downstream->get_response_buf();
-  body->append(html);
-  downstream->set_response_state(DownstreamState::MSG_COMPLETE);
 
-  nghttp3_data_reader data_read;
-  data_read.read_data = downstream_read_data_callback;
+  nghttp3_data_reader data_read, *data_read_ptr = nullptr;
+
+  const auto &req = downstream->request();
+
+  if (req.method != HTTP_HEAD) {
+    data_read.read_data = downstream_read_data_callback;
+    data_read_ptr = &data_read;
+
+    auto body = downstream->get_response_buf();
+
+    body->append(html);
+  }
+
+  downstream->set_response_state(DownstreamState::MSG_COMPLETE);
 
   auto lgconf = log_config();
   lgconf->update_tstamp(std::chrono::system_clock::now());
@@ -2737,15 +2749,15 @@ int Http3Upstream::error_reply(Downstream *downstream,
   auto content_length = util::make_string_ref_uint(balloc, html.size());
   auto date = make_string_ref(balloc, lgconf->tstamp->time_http);
 
-  auto nva = std::array<nghttp3_nv, 5>{
+  auto nva = std::to_array(
       {http3::make_nv_ls_nocopy(":status", response_status),
        http3::make_nv_ll("content-type", "text/html; charset=UTF-8"),
        http3::make_nv_ls_nocopy("server", get_config()->http.server_name),
        http3::make_nv_ls_nocopy("content-length", content_length),
-       http3::make_nv_ls_nocopy("date", date)}};
+       http3::make_nv_ls_nocopy("date", date)});
 
   rv = nghttp3_conn_submit_response(httpconn_, downstream->get_stream_id(),
-                                    nva.data(), nva.size(), &data_read);
+                                    nva.data(), nva.size(), data_read_ptr);
   if (nghttp3_err_is_fatal(rv)) {
     ULOG(FATAL, this) << "nghttp3_conn_submit_response() failed: "
                       << nghttp3_strerror(rv);
