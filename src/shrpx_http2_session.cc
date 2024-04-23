@@ -468,11 +468,11 @@ int Http2Session::initiate_connection() {
         auto sni_name =
             addr_->sni.empty() ? StringRef{addr_->host} : StringRef{addr_->sni};
 
-        if (!util::numeric_host(sni_name.c_str())) {
+        if (!util::numeric_host(sni_name.data())) {
           // TLS extensions: SNI. There is no documentation about the return
           // code for this function (actually this is macro wrapping SSL_ctrl
           // at the time of this writing).
-          SSL_set_tlsext_host_name(conn_.tls.ssl, sni_name.c_str());
+          SSL_set_tlsext_host_name(conn_.tls.ssl, sni_name.data());
         }
 
         auto tls_session = tls::reuse_tls_session(addr_->tls_session_cache);
@@ -693,7 +693,7 @@ int Http2Session::downstream_connect_proxy() {
   }
 
   std::string req = "CONNECT ";
-  req.append(addr_->hostport.c_str(), addr_->hostport.size());
+  req.append(addr_->hostport.data(), addr_->hostport.size());
   if (addr_->port == 80 || addr_->port == 443) {
     req += ':';
     req += util::utos(addr_->port);
@@ -1171,7 +1171,8 @@ int on_response_headers(Http2Session *http2session, Downstream *downstream,
     auto content_length = resp.fs.header(http2::HD_CONTENT_LENGTH);
     if (content_length) {
       // libnghttp2 guarantees this can be parsed
-      resp.fs.content_length = util::parse_uint(content_length->value);
+      resp.fs.content_length =
+          util::parse_uint(content_length->value).value_or(-1);
     }
 
     if (resp.fs.content_length == -1 && downstream->expect_response_body()) {
@@ -1184,8 +1185,7 @@ int on_response_headers(Http2Session *http2session, Downstream *downstream,
         // Otherwise, use chunked encoding to keep upstream connection
         // open.  In HTTP2, we are supposed not to receive
         // transfer-encoding.
-        resp.fs.add_header_token(StringRef::from_lit("transfer-encoding"),
-                                 StringRef::from_lit("chunked"), false,
+        resp.fs.add_header_token("transfer-encoding"_sr, "chunked"_sr, false,
                                  http2::HD_TRANSFER_ENCODING);
         downstream->set_chunked_response(true);
       }
@@ -2279,7 +2279,7 @@ int Http2Session::handle_downstream_push_promise_complete(
   }
 
   // For server-wide OPTIONS request, path is empty.
-  if (method_token != HTTP_OPTIONS || path->value != "*") {
+  if (method_token != HTTP_OPTIONS || path->value != "*"_sr) {
     promised_req.path = http2::rewrite_clean_path(promised_balloc, path->value);
   }
 

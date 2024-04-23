@@ -46,6 +46,7 @@
 #include <chrono>
 #include <map>
 #include <random>
+#include <optional>
 
 #ifdef HAVE_LIBEV
 #  include <ev.h>
@@ -59,20 +60,20 @@
 
 namespace nghttp2 {
 
-constexpr auto NGHTTP2_H2_ALPN = StringRef::from_lit("\x2h2");
-constexpr auto NGHTTP2_H2 = StringRef::from_lit("h2");
+constexpr auto NGHTTP2_H2_ALPN = "\x2h2"_sr;
+constexpr auto NGHTTP2_H2 = "h2"_sr;
 
 // The additional HTTP/2 protocol ALPN protocol identifier we also
 // supports for our applications to make smooth migration into final
 // h2 ALPN ID.
-constexpr auto NGHTTP2_H2_16_ALPN = StringRef::from_lit("\x5h2-16");
-constexpr auto NGHTTP2_H2_16 = StringRef::from_lit("h2-16");
+constexpr auto NGHTTP2_H2_16_ALPN = "\x5h2-16"_sr;
+constexpr auto NGHTTP2_H2_16 = "h2-16"_sr;
 
-constexpr auto NGHTTP2_H2_14_ALPN = StringRef::from_lit("\x5h2-14");
-constexpr auto NGHTTP2_H2_14 = StringRef::from_lit("h2-14");
+constexpr auto NGHTTP2_H2_14_ALPN = "\x5h2-14"_sr;
+constexpr auto NGHTTP2_H2_14 = "h2-14"_sr;
 
-constexpr auto NGHTTP2_H1_1_ALPN = StringRef::from_lit("\x8http/1.1");
-constexpr auto NGHTTP2_H1_1 = StringRef::from_lit("http/1.1");
+constexpr auto NGHTTP2_H1_1_ALPN = "\x8http/1.1"_sr;
+constexpr auto NGHTTP2_H1_1 = "http/1.1"_sr;
 
 constexpr size_t NGHTTP2_MAX_UINT64_DIGITS = str_size("18446744073709551615");
 
@@ -185,24 +186,11 @@ OutputIt quote_string(OutputIt it, const StringRef &target) {
 // NUL byte.
 size_t quote_stringlen(const StringRef &target);
 
-std::string format_hex(const unsigned char *s, size_t len);
-
-template <size_t N> std::string format_hex(const unsigned char (&s)[N]) {
-  return format_hex(s, N);
-}
-
-template <size_t N> std::string format_hex(const std::array<uint8_t, N> &s) {
-  return format_hex(s.data(), s.size());
-}
-
-StringRef format_hex(BlockAllocator &balloc, const StringRef &s);
-
 static constexpr char LOWER_XDIGITS[] = "0123456789abcdef";
 
-template <typename OutputIt>
-OutputIt format_hex(OutputIt it, const StringRef &s) {
-  for (auto cc : s) {
-    uint8_t c = cc;
+template <std::weakly_incrementable OutputIt>
+OutputIt format_hex(OutputIt it, std::span<const uint8_t> s) {
+  for (auto c : s) {
     *it++ = LOWER_XDIGITS[c >> 4];
     *it++ = LOWER_XDIGITS[c & 0xf];
   }
@@ -210,10 +198,30 @@ OutputIt format_hex(OutputIt it, const StringRef &s) {
   return it;
 }
 
+template <typename T, size_t N = std::dynamic_extent,
+          std::weakly_incrementable OutputIt>
+OutputIt format_hex(OutputIt it, std::span<T, N> s) {
+  return format_hex(it, std::span<const uint8_t>{as_uint8_span(s)});
+}
+
+std::string format_hex(std::span<const uint8_t> s);
+
+template <typename T, size_t N = std::dynamic_extent>
+std::string format_hex(std::span<T, N> s) {
+  return format_hex(std::span<const uint8_t>{as_uint8_span(s)});
+}
+
+StringRef format_hex(BlockAllocator &balloc, std::span<const uint8_t> s);
+
+template <typename T, size_t N = std::dynamic_extent>
+StringRef format_hex(BlockAllocator &balloc, std::span<T, N> s) {
+  return format_hex(balloc, std::span<const uint8_t>{as_uint8_span(s)});
+}
+
 // decode_hex decodes hex string |s|, returns the decoded byte string.
 // This function assumes |s| is hex string, that is is_hex_string(s)
 // == true.
-StringRef decode_hex(BlockAllocator &balloc, const StringRef &s);
+std::span<const uint8_t> decode_hex(BlockAllocator &balloc, const StringRef &s);
 
 template <typename OutputIt>
 OutputIt decode_hex(OutputIt d_first, const StringRef &s) {
@@ -458,10 +466,10 @@ template <typename T, typename OutputIt> OutputIt utos(OutputIt dst, T n) {
 template <typename T>
 StringRef make_string_ref_uint(BlockAllocator &balloc, T n) {
   auto iov = make_byte_ref(balloc, NGHTTP2_MAX_UINT64_DIGITS + 1);
-  auto p = iov.base;
+  auto p = std::begin(iov);
   p = util::utos(p, n);
   *p = '\0';
-  return StringRef{iov.base, p};
+  return StringRef{std::span{std::begin(iov), p}};
 }
 
 template <typename T> std::string utos_unit(T n) {
@@ -735,35 +743,22 @@ int get_socket_error(int fd);
 // Returns true if |host| is IPv6 numeric address (e.g., ::1)
 bool ipv6_numeric_addr(const char *host);
 
-// Parses NULL terminated string |s| as unsigned integer and returns
-// the parsed integer.  Additionally, if |s| ends with 'k', 'm', 'g'
-// and its upper case characters, multiply the integer by 1024, 1024 *
-// 1024 and 1024 * 1024 respectively.  If there is an error, returns
-// -1.
-int64_t parse_uint_with_unit(const char *s);
-// The following overload does not require |s| is NULL terminated.
-int64_t parse_uint_with_unit(const uint8_t *s, size_t len);
-int64_t parse_uint_with_unit(const StringRef &s);
+// Parses |s| as unsigned integer and returns the parsed integer.
+// Additionally, if |s| ends with 'k', 'm', 'g' and its upper case
+// characters, multiply the integer by 1024, 1024 * 1024 and 1024 *
+// 1024 respectively.  If there is an error, returns no value.
+std::optional<int64_t> parse_uint_with_unit(const StringRef &s);
 
-// Parses NULL terminated string |s| as unsigned integer and returns
-// the parsed integer.  If there is an error, returns -1.
-int64_t parse_uint(const char *s);
-// The following overload does not require |s| is NULL terminated.
-int64_t parse_uint(const uint8_t *s, size_t len);
-int64_t parse_uint(const std::string &s);
-int64_t parse_uint(const StringRef &s);
+// Parses |s| as unsigned integer and returns the parsed integer..
+std::optional<int64_t> parse_uint(const StringRef &s);
 
-// Parses NULL terminated string |s| as unsigned integer and returns
-// the parsed integer casted to double.  If |s| ends with "s", the
-// parsed value's unit is a second.  If |s| ends with "ms", the unit
-// is millisecond.  Similarly, it also supports 'm' and 'h' for
-// minutes and hours respectively.  If none of them are given, the
-// unit is second.  This function returns
-// std::numeric_limits<double>::infinity() if error occurs.
-double parse_duration_with_unit(const char *s);
-// The following overload does not require |s| is NULL terminated.
-double parse_duration_with_unit(const uint8_t *s, size_t len);
-double parse_duration_with_unit(const StringRef &s);
+// Parses |s| as unsigned integer and returns the parsed integer
+// casted to double.  If |s| ends with "s", the parsed value's unit is
+// a second.  If |s| ends with "ms", the unit is millisecond.
+// Similarly, it also supports 'm' and 'h' for minutes and hours
+// respectively.  If none of them are given, the unit is second.  This
+// function returns no value if error occurs.
+std::optional<double> parse_duration_with_unit(const StringRef &s);
 
 // Returns string representation of time duration |t|.  If t has
 // fractional part (at least more than or equal to 1e-3), |t| is
@@ -792,7 +787,7 @@ StringRef make_hostport(BlockAllocator &balloc, const StringRef &host,
 
 template <typename OutputIt>
 StringRef make_hostport(OutputIt first, const StringRef &host, uint16_t port) {
-  auto ipv6 = ipv6_numeric_addr(host.c_str());
+  auto ipv6 = ipv6_numeric_addr(host.data());
   auto serv = utos(port);
   auto p = first;
 
@@ -812,7 +807,7 @@ StringRef make_hostport(OutputIt first, const StringRef &host, uint16_t port) {
 
   *p = '\0';
 
-  return StringRef{first, p};
+  return StringRef{std::span{first, p}};
 }
 
 // Creates "host:port" string using given |host| and |port|.  If
@@ -828,7 +823,7 @@ StringRef make_http_hostport(OutputIt first, const StringRef &host,
     return make_hostport(first, host, port);
   }
 
-  auto ipv6 = ipv6_numeric_addr(host.c_str());
+  auto ipv6 = ipv6_numeric_addr(host.data());
   auto p = first;
 
   if (ipv6) {
@@ -843,7 +838,7 @@ StringRef make_http_hostport(OutputIt first, const StringRef &host,
 
   *p = '\0';
 
-  return StringRef{first, p};
+  return StringRef{std::span{first, p}};
 }
 
 // hexdump dumps |data| of length |datalen| in the format similar to

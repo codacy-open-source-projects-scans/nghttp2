@@ -1115,7 +1115,7 @@ int Client::connection_made() {
 
       // Just assign next_proto to selected_proto anyway to show the
       // negotiation result.
-      selected_proto = proto.str();
+      selected_proto = proto;
     } else if (config.is_quic()) {
       std::cerr << "QUIC requires ALPN negotiation" << std::endl;
       return -1;
@@ -1128,7 +1128,7 @@ int Client::connection_made() {
           std::cout << "Server does not support ALPN. Falling back to HTTP/1.1."
                     << std::endl;
           session = std::make_unique<Http1Session>(this);
-          selected_proto = NGHTTP2_H1_1.str();
+          selected_proto = NGHTTP2_H1_1;
           break;
         }
       }
@@ -1156,7 +1156,7 @@ int Client::connection_made() {
       break;
     case Config::PROTO_HTTP1_1:
       session = std::make_unique<Http1Session>(this);
-      selected_proto = NGHTTP2_H1_1.str();
+      selected_proto = NGHTTP2_H1_1;
       break;
     default:
       // unreachable
@@ -1862,7 +1862,7 @@ std::string get_reqline(const char *uri, const http_parser_url &u) {
   std::string reqline;
 
   if (util::has_uri_field(u, UF_PATH)) {
-    reqline = util::get_uri_field(uri, u, UF_PATH).str();
+    reqline = util::get_uri_field(uri, u, UF_PATH);
   } else {
     reqline = "/";
   }
@@ -1883,14 +1883,14 @@ constexpr char UNIX_PATH_PREFIX[] = "unix:";
 namespace {
 bool parse_base_uri(const StringRef &base_uri) {
   http_parser_url u{};
-  if (http_parser_parse_url(base_uri.c_str(), base_uri.size(), 0, &u) != 0 ||
+  if (http_parser_parse_url(base_uri.data(), base_uri.size(), 0, &u) != 0 ||
       !util::has_uri_field(u, UF_SCHEMA) || !util::has_uri_field(u, UF_HOST)) {
     return false;
   }
 
-  config.scheme = util::get_uri_field(base_uri.c_str(), u, UF_SCHEMA).str();
-  config.host = util::get_uri_field(base_uri.c_str(), u, UF_HOST).str();
-  config.default_port = util::get_default_port(base_uri.c_str(), u);
+  config.scheme = util::get_uri_field(base_uri.data(), u, UF_SCHEMA);
+  config.host = util::get_uri_field(base_uri.data(), u, UF_HOST);
+  config.default_port = util::get_default_port(base_uri.data(), u);
   if (util::has_uri_field(u, UF_PORT)) {
     config.port = u.port;
   } else {
@@ -2034,7 +2034,7 @@ namespace {
 int parse_header_table_size(uint32_t &dst, const char *opt,
                             const char *optarg) {
   auto n = util::parse_uint_with_unit(optarg);
-  if (n == -1) {
+  if (!n) {
     std::cerr << "--" << opt << ": Bad option value: " << optarg << std::endl;
     return -1;
   }
@@ -2045,7 +2045,7 @@ int parse_header_table_size(uint32_t &dst, const char *opt,
     return -1;
   }
 
-  dst = n;
+  dst = *n;
 
   return 0;
 }
@@ -2087,7 +2087,7 @@ benchmarking tool for HTTP/2 server)"
 } // namespace
 
 namespace {
-constexpr char DEFAULT_ALPN_LIST[] = "h2,h2-16,h2-14,http/1.1";
+constexpr auto DEFAULT_ALPN_LIST = "h2,h2-16,h2-14,http/1.1"_sr;
 } // namespace
 
 namespace {
@@ -2374,21 +2374,21 @@ int main(int argc, char **argv) {
     switch (c) {
     case 'n': {
       auto n = util::parse_uint(optarg);
-      if (n == -1) {
+      if (!n) {
         std::cerr << "-n: bad option value: " << optarg << std::endl;
         exit(EXIT_FAILURE);
       }
-      config.nreqs = n;
+      config.nreqs = *n;
       nreqs_set_manually = true;
       break;
     }
     case 'c': {
       auto n = util::parse_uint(optarg);
-      if (n == -1) {
+      if (!n) {
         std::cerr << "-c: bad option value: " << optarg << std::endl;
         exit(EXIT_FAILURE);
       }
-      config.nclients = n;
+      config.nclients = *n;
       break;
     }
     case 'd':
@@ -2400,55 +2400,55 @@ int main(int argc, char **argv) {
                 << "no threads created." << std::endl;
 #else
       auto n = util::parse_uint(optarg);
-      if (n == -1) {
+      if (!n) {
         std::cerr << "-t: bad option value: " << optarg << std::endl;
         exit(EXIT_FAILURE);
       }
-      config.nthreads = n;
+      config.nthreads = *n;
 #endif // NOTHREADS
       break;
     }
     case 'm': {
       auto n = util::parse_uint(optarg);
-      if (n == -1) {
+      if (!n) {
         std::cerr << "-m: bad option value: " << optarg << std::endl;
         exit(EXIT_FAILURE);
       }
-      config.max_concurrent_streams = n;
+      config.max_concurrent_streams = *n;
       break;
     }
     case 'w':
     case 'W': {
       auto n = util::parse_uint(optarg);
-      if (n == -1 || n > 30) {
+      if (!n || n > 30) {
         std::cerr << "-" << static_cast<char>(c)
                   << ": specify the integer in the range [0, 30], inclusive"
                   << std::endl;
         exit(EXIT_FAILURE);
       }
       if (c == 'w') {
-        config.window_bits = n;
+        config.window_bits = *n;
       } else {
-        config.connection_window_bits = n;
+        config.connection_window_bits = *n;
       }
       break;
     }
     case 'f': {
       auto n = util::parse_uint_with_unit(optarg);
-      if (n == -1) {
+      if (!n) {
         std::cerr << "--max-frame-size: bad option value: " << optarg
                   << std::endl;
         exit(EXIT_FAILURE);
       }
-      if (static_cast<uint64_t>(n) < 16_k) {
+      if (static_cast<uint64_t>(*n) < 16_k) {
         std::cerr << "--max-frame-size: minimum 16384" << std::endl;
         exit(EXIT_FAILURE);
       }
-      if (static_cast<uint64_t>(n) > 16_m - 1) {
+      if (static_cast<uint64_t>(*n) > 16_m - 1) {
         std::cerr << "--max-frame-size: maximum 16777215" << std::endl;
         exit(EXIT_FAILURE);
       }
-      config.max_frame_size = n;
+      config.max_frame_size = *n;
       break;
     }
     case 'H': {
@@ -2482,8 +2482,7 @@ int main(int argc, char **argv) {
       break;
     case 'p': {
       auto proto = StringRef{optarg};
-      if (util::strieq(StringRef::from_lit(NGHTTP2_CLEARTEXT_PROTO_VERSION_ID),
-                       proto)) {
+      if (util::strieq(NGHTTP2_CLEARTEXT_PROTO_VERSION_ID ""_sr, proto)) {
         config.no_tls_proto = Config::PROTO_HTTP2;
       } else if (util::strieq(NGHTTP2_H1_1, proto)) {
         config.no_tls_proto = Config::PROTO_HTTP1_1;
@@ -2495,7 +2494,7 @@ int main(int argc, char **argv) {
     }
     case 'r': {
       auto n = util::parse_uint(optarg);
-      if (n == -1) {
+      if (!n) {
         std::cerr << "-r: bad option value: " << optarg << std::endl;
         exit(EXIT_FAILURE);
       }
@@ -2504,25 +2503,29 @@ int main(int argc, char **argv) {
                   << "must be positive." << std::endl;
         exit(EXIT_FAILURE);
       }
-      config.rate = n;
+      config.rate = *n;
       break;
     }
-    case 'T':
-      config.conn_active_timeout = util::parse_duration_with_unit(optarg);
-      if (!std::isfinite(config.conn_active_timeout)) {
+    case 'T': {
+      auto d = util::parse_duration_with_unit(optarg);
+      if (!d) {
         std::cerr << "-T: bad value for the conn_active_timeout wait time: "
                   << optarg << std::endl;
         exit(EXIT_FAILURE);
       }
+      config.conn_active_timeout = *d;
       break;
-    case 'N':
-      config.conn_inactivity_timeout = util::parse_duration_with_unit(optarg);
-      if (!std::isfinite(config.conn_inactivity_timeout)) {
+    }
+    case 'N': {
+      auto d = util::parse_duration_with_unit(optarg);
+      if (!d) {
         std::cerr << "-N: bad value for the conn_inactivity_timeout wait time: "
                   << optarg << std::endl;
         exit(EXIT_FAILURE);
       }
+      config.conn_inactivity_timeout = *d;
       break;
+    }
     case 'B': {
       auto arg = StringRef{optarg};
       config.base_uri = "";
@@ -2556,16 +2559,18 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
       }
 
-      config.base_uri = arg.str();
+      config.base_uri = arg;
       break;
     }
-    case 'D':
-      config.duration = util::parse_duration_with_unit(optarg);
-      if (!std::isfinite(config.duration)) {
+    case 'D': {
+      auto d = util::parse_duration_with_unit(optarg);
+      if (!d) {
         std::cerr << "-D: value error " << optarg << std::endl;
         exit(EXIT_FAILURE);
       }
+      config.duration = *d;
       break;
+    }
     case 'v':
       config.verbose = true;
       break;
@@ -2590,18 +2595,19 @@ int main(int argc, char **argv) {
         config.ifile = optarg;
         config.timing_script = true;
         break;
-      case 5:
+      case 5: {
         // rate-period
-        config.rate_period = util::parse_duration_with_unit(optarg);
-        if (!std::isfinite(config.rate_period)) {
+        auto d = util::parse_duration_with_unit(optarg);
+        if (!d) {
           std::cerr << "--rate-period: value error " << optarg << std::endl;
           exit(EXIT_FAILURE);
         }
+        config.rate_period = *d;
         break;
+      }
       case 6:
         // --h1
-        config.alpn_list =
-            util::parse_config_str_list(StringRef::from_lit("http/1.1"));
+        config.alpn_list = util::parse_config_str_list("http/1.1"_sr);
         config.no_tls_proto = Config::PROTO_HTTP1_1;
         break;
       case 7:
@@ -2618,14 +2624,16 @@ int main(int argc, char **argv) {
           exit(EXIT_FAILURE);
         }
         break;
-      case 9:
+      case 9: {
         // --warm-up-time
-        config.warm_up_time = util::parse_duration_with_unit(optarg);
-        if (!std::isfinite(config.warm_up_time)) {
+        auto d = util::parse_duration_with_unit(optarg);
+        if (!d) {
           std::cerr << "--warm-up-time: value error " << optarg << std::endl;
           exit(EXIT_FAILURE);
         }
+        config.warm_up_time = *d;
         break;
+      }
       case 10:
         // --log-file
         logfile = optarg;
@@ -2635,11 +2643,12 @@ int main(int argc, char **argv) {
         auto p = util::split_hostport(StringRef{optarg});
         int64_t port = 0;
         if (p.first.empty() ||
-            (!p.second.empty() && (port = util::parse_uint(p.second)) == -1)) {
+            (!p.second.empty() &&
+             (port = util::parse_uint(p.second).value_or(-1)) == -1)) {
           std::cerr << "--connect-to: Invalid value " << optarg << std::endl;
           exit(EXIT_FAILURE);
         }
-        config.connect_to_host = p.first.str();
+        config.connect_to_host = p.first;
         config.connect_to_port = port;
         break;
       }
@@ -2673,17 +2682,17 @@ int main(int argc, char **argv) {
       case 17: {
         // --max-udp-payload-size
         auto n = util::parse_uint_with_unit(optarg);
-        if (n == -1) {
+        if (!n) {
           std::cerr << "--max-udp-payload-size: bad option value: " << optarg
                     << std::endl;
           exit(EXIT_FAILURE);
         }
-        if (static_cast<uint64_t>(n) > 64_k) {
+        if (static_cast<uint64_t>(*n) > 64_k) {
           std::cerr << "--max-udp-payload-size: must not exceed 65536"
                     << std::endl;
           exit(EXIT_FAILURE);
         }
-        config.max_udp_payload_size = n;
+        config.max_udp_payload_size = *n;
         break;
       }
       case 18:
@@ -2724,8 +2733,7 @@ int main(int argc, char **argv) {
   }
 
   if (config.alpn_list.empty()) {
-    config.alpn_list =
-        util::parse_config_str_list(StringRef::from_lit(DEFAULT_ALPN_LIST));
+    config.alpn_list = util::parse_config_str_list(DEFAULT_ALPN_LIST);
   }
 
   // serialize the APLN tokens
@@ -3060,15 +3068,15 @@ int main(int argc, char **argv) {
     // 2 for :path, and possible content-length
     nva.reserve(2 + shared_nva.size());
 
-    nva.push_back(http2::make_nv_ls(":path", req));
+    nva.push_back(http2::make_field_v(":path"_sr, req));
 
     for (auto &nv : shared_nva) {
-      nva.push_back(http2::make_nv(nv.name, nv.value, false));
+      nva.push_back(http2::make_field_nv(nv.name, nv.value));
     }
 
     if (!content_length_str.empty()) {
-      nva.push_back(http2::make_nv(StringRef::from_lit("content-length"),
-                                   StringRef{content_length_str}));
+      nva.push_back(
+          http2::make_field_nv("content-length"_sr, content_length_str));
     }
 
     config.nva.push_back(std::move(nva));

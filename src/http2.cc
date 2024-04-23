@@ -35,107 +35,107 @@ namespace http2 {
 StringRef get_reason_phrase(unsigned int status_code) {
   switch (status_code) {
   case 100:
-    return StringRef::from_lit("Continue");
+    return "Continue"_sr;
   case 101:
-    return StringRef::from_lit("Switching Protocols");
+    return "Switching Protocols"_sr;
   case 103:
-    return StringRef::from_lit("Early Hints");
+    return "Early Hints"_sr;
   case 200:
-    return StringRef::from_lit("OK");
+    return "OK"_sr;
   case 201:
-    return StringRef::from_lit("Created");
+    return "Created"_sr;
   case 202:
-    return StringRef::from_lit("Accepted");
+    return "Accepted"_sr;
   case 203:
-    return StringRef::from_lit("Non-Authoritative Information");
+    return "Non-Authoritative Information"_sr;
   case 204:
-    return StringRef::from_lit("No Content");
+    return "No Content"_sr;
   case 205:
-    return StringRef::from_lit("Reset Content");
+    return "Reset Content"_sr;
   case 206:
-    return StringRef::from_lit("Partial Content");
+    return "Partial Content"_sr;
   case 300:
-    return StringRef::from_lit("Multiple Choices");
+    return "Multiple Choices"_sr;
   case 301:
-    return StringRef::from_lit("Moved Permanently");
+    return "Moved Permanently"_sr;
   case 302:
-    return StringRef::from_lit("Found");
+    return "Found"_sr;
   case 303:
-    return StringRef::from_lit("See Other");
+    return "See Other"_sr;
   case 304:
-    return StringRef::from_lit("Not Modified");
+    return "Not Modified"_sr;
   case 305:
-    return StringRef::from_lit("Use Proxy");
-  // case 306: return StringRef::from_lit("(Unused)");
+    return "Use Proxy"_sr;
+  // case 306: return "(Unused)"_sr;
   case 307:
-    return StringRef::from_lit("Temporary Redirect");
+    return "Temporary Redirect"_sr;
   case 308:
-    return StringRef::from_lit("Permanent Redirect");
+    return "Permanent Redirect"_sr;
   case 400:
-    return StringRef::from_lit("Bad Request");
+    return "Bad Request"_sr;
   case 401:
-    return StringRef::from_lit("Unauthorized");
+    return "Unauthorized"_sr;
   case 402:
-    return StringRef::from_lit("Payment Required");
+    return "Payment Required"_sr;
   case 403:
-    return StringRef::from_lit("Forbidden");
+    return "Forbidden"_sr;
   case 404:
-    return StringRef::from_lit("Not Found");
+    return "Not Found"_sr;
   case 405:
-    return StringRef::from_lit("Method Not Allowed");
+    return "Method Not Allowed"_sr;
   case 406:
-    return StringRef::from_lit("Not Acceptable");
+    return "Not Acceptable"_sr;
   case 407:
-    return StringRef::from_lit("Proxy Authentication Required");
+    return "Proxy Authentication Required"_sr;
   case 408:
-    return StringRef::from_lit("Request Timeout");
+    return "Request Timeout"_sr;
   case 409:
-    return StringRef::from_lit("Conflict");
+    return "Conflict"_sr;
   case 410:
-    return StringRef::from_lit("Gone");
+    return "Gone"_sr;
   case 411:
-    return StringRef::from_lit("Length Required");
+    return "Length Required"_sr;
   case 412:
-    return StringRef::from_lit("Precondition Failed");
+    return "Precondition Failed"_sr;
   case 413:
-    return StringRef::from_lit("Payload Too Large");
+    return "Payload Too Large"_sr;
   case 414:
-    return StringRef::from_lit("URI Too Long");
+    return "URI Too Long"_sr;
   case 415:
-    return StringRef::from_lit("Unsupported Media Type");
+    return "Unsupported Media Type"_sr;
   case 416:
-    return StringRef::from_lit("Requested Range Not Satisfiable");
+    return "Requested Range Not Satisfiable"_sr;
   case 417:
-    return StringRef::from_lit("Expectation Failed");
+    return "Expectation Failed"_sr;
   case 421:
-    return StringRef::from_lit("Misdirected Request");
+    return "Misdirected Request"_sr;
   case 425:
     // https://tools.ietf.org/html/rfc8470
-    return StringRef::from_lit("Too Early");
+    return "Too Early"_sr;
   case 426:
-    return StringRef::from_lit("Upgrade Required");
+    return "Upgrade Required"_sr;
   case 428:
-    return StringRef::from_lit("Precondition Required");
+    return "Precondition Required"_sr;
   case 429:
-    return StringRef::from_lit("Too Many Requests");
+    return "Too Many Requests"_sr;
   case 431:
-    return StringRef::from_lit("Request Header Fields Too Large");
+    return "Request Header Fields Too Large"_sr;
   case 451:
-    return StringRef::from_lit("Unavailable For Legal Reasons");
+    return "Unavailable For Legal Reasons"_sr;
   case 500:
-    return StringRef::from_lit("Internal Server Error");
+    return "Internal Server Error"_sr;
   case 501:
-    return StringRef::from_lit("Not Implemented");
+    return "Not Implemented"_sr;
   case 502:
-    return StringRef::from_lit("Bad Gateway");
+    return "Bad Gateway"_sr;
   case 503:
-    return StringRef::from_lit("Service Unavailable");
+    return "Service Unavailable"_sr;
   case 504:
-    return StringRef::from_lit("Gateway Timeout");
+    return "Gateway Timeout"_sr;
   case 505:
-    return StringRef::from_lit("HTTP Version Not Supported");
+    return "HTTP Version Not Supported"_sr;
   case 511:
-    return StringRef::from_lit("Network Authentication Required");
+    return "Network Authentication Required"_sr;
   default:
     return StringRef{};
   }
@@ -144,104 +144,104 @@ StringRef get_reason_phrase(unsigned int status_code) {
 StringRef stringify_status(BlockAllocator &balloc, unsigned int status_code) {
   switch (status_code) {
   case 100:
-    return StringRef::from_lit("100");
+    return "100"_sr;
   case 101:
-    return StringRef::from_lit("101");
+    return "101"_sr;
   case 103:
-    return StringRef::from_lit("103");
+    return "103"_sr;
   case 200:
-    return StringRef::from_lit("200");
+    return "200"_sr;
   case 201:
-    return StringRef::from_lit("201");
+    return "201"_sr;
   case 202:
-    return StringRef::from_lit("202");
+    return "202"_sr;
   case 203:
-    return StringRef::from_lit("203");
+    return "203"_sr;
   case 204:
-    return StringRef::from_lit("204");
+    return "204"_sr;
   case 205:
-    return StringRef::from_lit("205");
+    return "205"_sr;
   case 206:
-    return StringRef::from_lit("206");
+    return "206"_sr;
   case 300:
-    return StringRef::from_lit("300");
+    return "300"_sr;
   case 301:
-    return StringRef::from_lit("301");
+    return "301"_sr;
   case 302:
-    return StringRef::from_lit("302");
+    return "302"_sr;
   case 303:
-    return StringRef::from_lit("303");
+    return "303"_sr;
   case 304:
-    return StringRef::from_lit("304");
+    return "304"_sr;
   case 305:
-    return StringRef::from_lit("305");
-  // case 306: return StringRef::from_lit("306");
+    return "305"_sr;
+  // case 306: return "306"_sr;
   case 307:
-    return StringRef::from_lit("307");
+    return "307"_sr;
   case 308:
-    return StringRef::from_lit("308");
+    return "308"_sr;
   case 400:
-    return StringRef::from_lit("400");
+    return "400"_sr;
   case 401:
-    return StringRef::from_lit("401");
+    return "401"_sr;
   case 402:
-    return StringRef::from_lit("402");
+    return "402"_sr;
   case 403:
-    return StringRef::from_lit("403");
+    return "403"_sr;
   case 404:
-    return StringRef::from_lit("404");
+    return "404"_sr;
   case 405:
-    return StringRef::from_lit("405");
+    return "405"_sr;
   case 406:
-    return StringRef::from_lit("406");
+    return "406"_sr;
   case 407:
-    return StringRef::from_lit("407");
+    return "407"_sr;
   case 408:
-    return StringRef::from_lit("408");
+    return "408"_sr;
   case 409:
-    return StringRef::from_lit("409");
+    return "409"_sr;
   case 410:
-    return StringRef::from_lit("410");
+    return "410"_sr;
   case 411:
-    return StringRef::from_lit("411");
+    return "411"_sr;
   case 412:
-    return StringRef::from_lit("412");
+    return "412"_sr;
   case 413:
-    return StringRef::from_lit("413");
+    return "413"_sr;
   case 414:
-    return StringRef::from_lit("414");
+    return "414"_sr;
   case 415:
-    return StringRef::from_lit("415");
+    return "415"_sr;
   case 416:
-    return StringRef::from_lit("416");
+    return "416"_sr;
   case 417:
-    return StringRef::from_lit("417");
+    return "417"_sr;
   case 421:
-    return StringRef::from_lit("421");
+    return "421"_sr;
   case 426:
-    return StringRef::from_lit("426");
+    return "426"_sr;
   case 428:
-    return StringRef::from_lit("428");
+    return "428"_sr;
   case 429:
-    return StringRef::from_lit("429");
+    return "429"_sr;
   case 431:
-    return StringRef::from_lit("431");
+    return "431"_sr;
   case 451:
-    return StringRef::from_lit("451");
+    return "451"_sr;
   case 500:
-    return StringRef::from_lit("500");
+    return "500"_sr;
   case 501:
-    return StringRef::from_lit("501");
+    return "501"_sr;
   case 502:
-    return StringRef::from_lit("502");
+    return "502"_sr;
   case 503:
-    return StringRef::from_lit("503");
+    return "503"_sr;
   case 504:
-    return StringRef::from_lit("504");
+    return "504"_sr;
   case 505:
-    return StringRef::from_lit("505");
+    return "505"_sr;
   case 511:
-    return StringRef::from_lit("511");
+    return "511"_sr;
   default:
     return util::make_string_ref_uint(balloc, status_code);
   }
@@ -313,56 +313,6 @@ const Headers::value_type *get_header(const Headers &nva, const char *name) {
 
 bool non_empty_value(const HeaderRefs::value_type *nv) {
   return nv && !nv->value.empty();
-}
-
-namespace {
-nghttp2_nv make_nv_internal(const std::string &name, const std::string &value,
-                            bool no_index, uint8_t nv_flags) {
-  uint8_t flags;
-
-  flags =
-      nv_flags | (no_index ? NGHTTP2_NV_FLAG_NO_INDEX : NGHTTP2_NV_FLAG_NONE);
-
-  return {(uint8_t *)name.c_str(), (uint8_t *)value.c_str(), name.size(),
-          value.size(), flags};
-}
-} // namespace
-
-namespace {
-nghttp2_nv make_nv_internal(const StringRef &name, const StringRef &value,
-                            bool no_index, uint8_t nv_flags) {
-  uint8_t flags;
-
-  flags =
-      nv_flags | (no_index ? NGHTTP2_NV_FLAG_NO_INDEX : NGHTTP2_NV_FLAG_NONE);
-
-  return {(uint8_t *)name.c_str(), (uint8_t *)value.c_str(), name.size(),
-          value.size(), flags};
-}
-} // namespace
-
-nghttp2_nv make_nv(const std::string &name, const std::string &value,
-                   bool no_index) {
-  return make_nv_internal(name, value, no_index, NGHTTP2_NV_FLAG_NONE);
-}
-
-nghttp2_nv make_nv(const StringRef &name, const StringRef &value,
-                   bool no_index) {
-  return make_nv_internal(name, value, no_index, NGHTTP2_NV_FLAG_NONE);
-}
-
-nghttp2_nv make_nv_nocopy(const std::string &name, const std::string &value,
-                          bool no_index) {
-  return make_nv_internal(name, value, no_index,
-                          NGHTTP2_NV_FLAG_NO_COPY_NAME |
-                              NGHTTP2_NV_FLAG_NO_COPY_VALUE);
-}
-
-nghttp2_nv make_nv_nocopy(const StringRef &name, const StringRef &value,
-                          bool no_index) {
-  return make_nv_internal(name, value, no_index,
-                          NGHTTP2_NV_FLAG_NO_COPY_NAME |
-                              NGHTTP2_NV_FLAG_NO_COPY_VALUE);
 }
 
 namespace {
@@ -459,8 +409,8 @@ void copy_headers_to_nva_internal(std::vector<nghttp2_nv> &nva,
       it_via = it;
       break;
     }
-    nva.push_back(
-        make_nv_internal(kv->name, kv->value, kv->no_index, nv_flags));
+    nva.push_back(make_field_flags(kv->name, kv->value,
+                                   nv_flags | http2::no_index(kv->no_index)));
   }
 }
 } // namespace
@@ -617,7 +567,7 @@ void dump_nv(FILE *out, const Headers &nva) {
 
 void dump_nv(FILE *out, const HeaderRefs &nva) {
   for (auto &nv : nva) {
-    fprintf(out, "%s: %s\n", nv.name.c_str(), nv.value.c_str());
+    fprintf(out, "%s: %s\n", nv.name.data(), nv.value.data());
   }
   fputc('\n', out);
   fflush(out);
@@ -665,7 +615,7 @@ StringRef rewrite_location_uri(BlockAllocator &balloc, const StringRef &uri,
   }
 
   auto iov = make_byte_ref(balloc, len + 1);
-  auto p = iov.base;
+  auto p = std::begin(iov);
 
   if (!request_authority.empty()) {
     p = std::copy(std::begin(upstream_scheme), std::end(upstream_scheme), p);
@@ -690,7 +640,7 @@ StringRef rewrite_location_uri(BlockAllocator &balloc, const StringRef &uri,
 
   *p = '\0';
 
-  return StringRef{iov.base, p};
+  return StringRef{std::span{std::begin(iov), p}};
 }
 
 int parse_http_status_code(const StringRef &src) {
@@ -1384,7 +1334,8 @@ std::string path_join(const StringRef &base_path, const StringRef &base_query,
                       const StringRef &rel_path, const StringRef &rel_query) {
   BlockAllocator balloc(1024, 1024);
 
-  return path_join(balloc, base_path, base_query, rel_path, rel_query).str();
+  return std::string{
+      path_join(balloc, base_path, base_query, rel_path, rel_query)};
 }
 
 bool expect_response_body(int status_code) {
@@ -1611,17 +1562,17 @@ StringRef get_pure_path_component(const StringRef &uri) {
   int rv;
 
   http_parser_url u{};
-  rv = http_parser_parse_url(uri.c_str(), uri.size(), 0, &u);
+  rv = http_parser_parse_url(uri.data(), uri.size(), 0, &u);
   if (rv != 0) {
     return StringRef{};
   }
 
   if (u.field_set & (1 << UF_PATH)) {
     auto &f = u.field_data[UF_PATH];
-    return StringRef{uri.c_str() + f.off, f.len};
+    return StringRef{uri.data() + f.off, f.len};
   }
 
-  return StringRef::from_lit("/");
+  return "/"_sr;
 }
 
 int construct_push_component(BlockAllocator &balloc, StringRef &scheme,
@@ -1636,7 +1587,7 @@ int construct_push_component(BlockAllocator &balloc, StringRef &scheme,
 
   http_parser_url u{};
 
-  rv = http_parser_parse_url(uri.c_str(), uri.size(), 0, &u);
+  rv = http_parser_parse_url(uri.data(), uri.size(), 0, &u);
 
   if (rv != 0) {
     if (uri[0] == '/') {
@@ -1653,18 +1604,18 @@ int construct_push_component(BlockAllocator &balloc, StringRef &scheme,
     }
   } else {
     if (u.field_set & (1 << UF_SCHEMA)) {
-      scheme = util::get_uri_field(uri.c_str(), u, UF_SCHEMA);
+      scheme = util::get_uri_field(uri.data(), u, UF_SCHEMA);
     }
 
     if (u.field_set & (1 << UF_HOST)) {
-      auto auth = util::get_uri_field(uri.c_str(), u, UF_HOST);
+      auto auth = util::get_uri_field(uri.data(), u, UF_HOST);
       auto len = auth.size();
       auto port_exists = u.field_set & (1 << UF_PORT);
       if (port_exists) {
         len += 1 + str_size("65535");
       }
       auto iov = make_byte_ref(balloc, len + 1);
-      auto p = iov.base;
+      auto p = std::begin(iov);
       p = std::copy(std::begin(auth), std::end(auth), p);
       if (port_exists) {
         *p++ = ':';
@@ -1672,19 +1623,19 @@ int construct_push_component(BlockAllocator &balloc, StringRef &scheme,
       }
       *p = '\0';
 
-      authority = StringRef{iov.base, p};
+      authority = StringRef{std::span{std::begin(iov), p}};
     }
 
     if (u.field_set & (1 << UF_PATH)) {
       auto &f = u.field_data[UF_PATH];
-      rel = StringRef{uri.c_str() + f.off, f.len};
+      rel = StringRef{uri.data() + f.off, f.len};
     } else {
-      rel = StringRef::from_lit("/");
+      rel = "/"_sr;
     }
 
     if (u.field_set & (1 << UF_QUERY)) {
       auto &f = u.field_data[UF_QUERY];
-      relq = StringRef{uri.c_str() + f.off, f.len};
+      relq = StringRef{uri.data() + f.off, f.len};
     }
   }
 
@@ -1737,7 +1688,7 @@ StringRef path_join(BlockAllocator &balloc, const StringRef &base_path,
       balloc, std::max(static_cast<size_t>(1), base_path.size()) +
                   rel_path.size() + 1 +
                   std::max(base_query.size(), rel_query.size()) + 1);
-  auto p = res.base;
+  auto p = std::begin(res);
 
   if (rel_path.empty()) {
     if (base_path.empty()) {
@@ -1751,12 +1702,12 @@ StringRef path_join(BlockAllocator &balloc, const StringRef &base_path,
         p = std::copy(std::begin(base_query), std::end(base_query), p);
       }
       *p = '\0';
-      return StringRef{res.base, p};
+      return StringRef{std::span{std::begin(res), p}};
     }
     *p++ = '?';
     p = std::copy(std::begin(rel_query), std::end(rel_query), p);
     *p = '\0';
-    return StringRef{res.base, p};
+    return StringRef{std::span{std::begin(res), p}};
   }
 
   auto first = std::begin(rel_path);
@@ -1777,31 +1728,31 @@ StringRef path_join(BlockAllocator &balloc, const StringRef &base_path,
     if (*first == '.') {
       if (first + 1 == last) {
         if (*(p - 1) != '/') {
-          p = eat_file(res.base, p);
+          p = eat_file(std::begin(res), p);
         }
         break;
       }
       if (*(first + 1) == '/') {
         if (*(p - 1) != '/') {
-          p = eat_file(res.base, p);
+          p = eat_file(std::begin(res), p);
         }
         first += 2;
         continue;
       }
       if (*(first + 1) == '.') {
         if (first + 2 == last) {
-          p = eat_dir(res.base, p);
+          p = eat_dir(std::begin(res), p);
           break;
         }
         if (*(first + 2) == '/') {
-          p = eat_dir(res.base, p);
+          p = eat_dir(std::begin(res), p);
           first += 3;
           continue;
         }
       }
     }
     if (*(p - 1) != '/') {
-      p = eat_file(res.base, p);
+      p = eat_file(std::begin(res), p);
     }
     auto slash = std::find(first, last, '/');
     if (slash == last) {
@@ -1818,7 +1769,7 @@ StringRef path_join(BlockAllocator &balloc, const StringRef &base_path,
     p = std::copy(std::begin(rel_query), std::end(rel_query), p);
   }
   *p = '\0';
-  return StringRef{res.base, p};
+  return StringRef{std::span{std::begin(res), p}};
 }
 
 StringRef normalize_path(BlockAllocator &balloc, const StringRef &path,
@@ -1834,7 +1785,7 @@ StringRef normalize_path(BlockAllocator &balloc, const StringRef &path,
 
   // includes last terminal NULL.
   auto result = make_byte_ref(balloc, path.size() + 1);
-  auto p = result.base;
+  auto p = std::begin(result);
 
   auto it = std::begin(path);
   for (; it + 2 < std::end(path);) {
@@ -1864,8 +1815,8 @@ StringRef normalize_path(BlockAllocator &balloc, const StringRef &path,
   p = std::copy(it, std::end(path), p);
   *p = '\0';
 
-  return path_join(balloc, StringRef{}, StringRef{}, StringRef{result.base, p},
-                   query);
+  return path_join(balloc, StringRef{}, StringRef{},
+                   StringRef{std::span{std::begin(result), p}}, query);
 }
 
 StringRef normalize_path_colon(BlockAllocator &balloc, const StringRef &path,
@@ -1881,7 +1832,7 @@ StringRef normalize_path_colon(BlockAllocator &balloc, const StringRef &path,
 
   // includes last terminal NULL.
   auto result = make_byte_ref(balloc, path.size() + 1);
-  auto p = result.base;
+  auto p = std::begin(result);
 
   auto it = std::begin(path);
   for (; it + 2 < std::end(path);) {
@@ -1911,14 +1862,14 @@ StringRef normalize_path_colon(BlockAllocator &balloc, const StringRef &path,
   p = std::copy(it, std::end(path), p);
   *p = '\0';
 
-  return path_join(balloc, StringRef{}, StringRef{}, StringRef{result.base, p},
-                   query);
+  return path_join(balloc, StringRef{}, StringRef{},
+                   StringRef{std::span{std::begin(result), p}}, query);
 }
 
 std::string normalize_path(const StringRef &path, const StringRef &query) {
   BlockAllocator balloc(1024, 1024);
 
-  return normalize_path(balloc, path, query).str();
+  return std::string{normalize_path(balloc, path, query)};
 }
 
 StringRef rewrite_clean_path(BlockAllocator &balloc, const StringRef &src) {
@@ -1938,15 +1889,15 @@ StringRef rewrite_clean_path(BlockAllocator &balloc, const StringRef &src) {
 
 StringRef copy_lower(BlockAllocator &balloc, const StringRef &src) {
   auto iov = make_byte_ref(balloc, src.size() + 1);
-  auto p = iov.base;
+  auto p = std::begin(iov);
   p = std::copy(std::begin(src), std::end(src), p);
   *p = '\0';
-  util::inp_strlower(iov.base, p);
-  return StringRef{iov.base, p};
+  util::inp_strlower(std::begin(iov), p);
+  return StringRef{std::span{std::begin(iov), p}};
 }
 
 bool contains_trailers(const StringRef &s) {
-  constexpr auto trailers = StringRef::from_lit("trailers");
+  constexpr auto trailers = "trailers"_sr;
 
   for (auto p = std::begin(s), end = std::end(s);; ++p) {
     p = std::find_if(p, end, [](char c) { return c != ' ' && c != '\t'; });
@@ -1977,12 +1928,13 @@ StringRef make_websocket_accept_token(uint8_t *dest, const StringRef &key) {
   std::copy_n(magic, str_size(magic), p);
 
   std::array<uint8_t, 20> h;
-  if (util::sha1(h.data(), StringRef{std::begin(s), std::end(s)}) != 0) {
+  if (util::sha1(h.data(), StringRef{std::span{std::begin(s), std::end(s)}}) !=
+      0) {
     return StringRef{};
   }
 
   auto end = base64::encode(std::begin(h), std::end(h), dest);
-  return StringRef{dest, end};
+  return StringRef{std::span{dest, end}};
 }
 
 bool legacy_http1(int major, int minor) {

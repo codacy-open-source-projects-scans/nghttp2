@@ -76,7 +76,7 @@ namespace {
 Config *config;
 } // namespace
 
-constexpr auto SHRPX_UNIX_PATH_PREFIX = StringRef::from_lit("unix:");
+constexpr auto SHRPX_UNIX_PATH_PREFIX = "unix:"_sr;
 
 const Config *get_config() { return config; }
 
@@ -139,8 +139,8 @@ int split_host_port(char *host, size_t hostlen, uint16_t *port_ptr,
 
   auto portstr = StringRef{sep + 1, std::end(hostport)};
   auto d = util::parse_uint(portstr);
-  if (1 <= d && d <= std::numeric_limits<uint16_t>::max()) {
-    *port_ptr = d;
+  if (d && 1 <= d && d <= std::numeric_limits<uint16_t>::max()) {
+    *port_ptr = *d;
     return 0;
   }
 
@@ -152,7 +152,7 @@ int split_host_port(char *host, size_t hostlen, uint16_t *port_ptr,
 namespace {
 bool is_secure(const StringRef &filename) {
   struct stat buf;
-  int rv = stat(filename.c_str(), &buf);
+  int rv = stat(filename.data(), &buf);
   if (rv == 0) {
     if ((buf.st_mode & S_IRWXU) && !(buf.st_mode & S_IRWXG) &&
         !(buf.st_mode & S_IRWXO)) {
@@ -185,7 +185,7 @@ read_tls_ticket_key_file(const std::vector<StringRef> &files,
   for (auto &file : files) {
     struct stat fst {};
 
-    if (stat(file.c_str(), &fst) == -1) {
+    if (stat(file.data(), &fst) == -1) {
       auto error = errno;
       LOG(ERROR) << "tls-ticket-key-file: could not stat file " << file
                  << ", errno=" << error;
@@ -198,7 +198,7 @@ read_tls_ticket_key_file(const std::vector<StringRef> &files,
       return nullptr;
     }
 
-    std::ifstream f(file.c_str());
+    std::ifstream f(file.data());
     if (!f) {
       LOG(ERROR) << "tls-ticket-key-file: could not open file " << file;
       return nullptr;
@@ -245,7 +245,7 @@ read_quic_secret_file(const StringRef &path) {
   auto qkms = std::make_shared<QUICKeyingMaterials>();
   auto &kms = qkms->keying_materials;
 
-  std::ifstream f(path.c_str());
+  std::ifstream f(path.data());
   if (!f) {
     LOG(ERROR) << "frontend-quic-secret-file: could not open file " << path;
     return nullptr;
@@ -350,7 +350,7 @@ std::string read_passwd_from_file(const StringRef &opt,
     return line;
   }
 
-  std::ifstream in(filename.c_str(), std::ios::binary);
+  std::ifstream in(filename.data(), std::ios::binary);
   if (!in) {
     LOG(ERROR) << opt << ": Could not open key passwd file " << filename;
     return line;
@@ -375,13 +375,12 @@ HeaderRefs::value_type parse_header(BlockAllocator &balloc,
 
   auto name_iov =
       make_byte_ref(balloc, std::distance(std::begin(optarg), colon) + 1);
-  auto p = name_iov.base;
-  p = std::copy(std::begin(optarg), colon, p);
-  util::inp_strlower(name_iov.base, p);
+  auto p = std::copy(std::begin(optarg), colon, std::begin(name_iov));
+  util::inp_strlower(std::begin(name_iov), p);
   *p = '\0';
 
   auto nv =
-      HeaderRef(StringRef{name_iov.base, p},
+      HeaderRef(StringRef{std::span{std::begin(name_iov), p}},
                 make_string_ref(balloc, StringRef{value, std::end(optarg)}));
 
   if (!nghttp2_check_header_name(nv.name.byte(), nv.name.size()) ||
@@ -395,12 +394,12 @@ HeaderRefs::value_type parse_header(BlockAllocator &balloc,
 template <typename T>
 int parse_uint(T *dest, const StringRef &opt, const StringRef &optarg) {
   auto val = util::parse_uint(optarg);
-  if (val == -1) {
+  if (!val) {
     LOG(ERROR) << opt << ": bad value.  Specify an integer >= 0.";
     return -1;
   }
 
-  *dest = val;
+  *dest = *val;
 
   return 0;
 }
@@ -410,20 +409,20 @@ template <typename T>
 int parse_uint_with_unit(T *dest, const StringRef &opt,
                          const StringRef &optarg) {
   auto n = util::parse_uint_with_unit(optarg);
-  if (n == -1) {
+  if (!n) {
     LOG(ERROR) << opt << ": bad value: '" << optarg << "'";
     return -1;
   }
 
   if (static_cast<uint64_t>(std::numeric_limits<T>::max()) <
-      static_cast<uint64_t>(n)) {
+      static_cast<uint64_t>(*n)) {
     LOG(ERROR) << opt
                << ": too large.  The value should be less than or equal to "
                << std::numeric_limits<T>::max();
     return -1;
   }
 
-  *dest = n;
+  *dest = *n;
 
   return 0;
 }
@@ -781,15 +780,11 @@ std::vector<LogFragment> parse_log_format(BlockAllocator &balloc,
     {
       auto iov = make_byte_ref(
           balloc, std::distance(value, var_name + var_namelen) + 1);
-      auto p = iov.base;
-      p = std::copy(value, var_name + var_namelen, p);
-      for (auto cp = iov.base; cp != p; ++cp) {
-        if (*cp == '_') {
-          *cp = '-';
-        }
-      }
+      auto p = std::copy(value, var_name + var_namelen, std::begin(iov));
+      std::transform(std::begin(iov), p, std::begin(iov),
+                     [](auto c) { return c == '_' ? '-' : c; });
       *p = '\0';
-      res.emplace_back(type, StringRef{iov.base, p});
+      res.emplace_back(type, StringRef{std::span{std::begin(iov), p}});
     }
   }
 
@@ -826,12 +821,12 @@ namespace {
 int parse_duration(ev_tstamp *dest, const StringRef &opt,
                    const StringRef &optarg) {
   auto t = util::parse_duration_with_unit(optarg);
-  if (t == std::numeric_limits<double>::infinity()) {
+  if (!t) {
     LOG(ERROR) << opt << ": bad value: '" << optarg << "'";
     return -1;
   }
 
-  *dest = t;
+  *dest = *t;
 
   return 0;
 }
@@ -977,11 +972,11 @@ namespace {
 int parse_downstream_param_duration(ev_tstamp &dest, const StringRef &name,
                                     const StringRef &value) {
   auto t = util::parse_duration_with_unit(value);
-  if (t == std::numeric_limits<double>::infinity()) {
+  if (!t) {
     LOG(ERROR) << "backend: " << name << ": bad value: '" << value << "'";
     return -1;
   }
-  dest = t;
+  dest = *t;
   return 0;
 }
 } // namespace
@@ -1021,12 +1016,12 @@ int parse_downstream_params(DownstreamParams &out,
       }
 
       auto n = util::parse_uint(valstr);
-      if (n == -1) {
+      if (!n) {
         LOG(ERROR) << "backend: fall: non-negative integer is expected";
         return -1;
       }
 
-      out.fall = n;
+      out.fall = *n;
     } else if (util::istarts_with_l(param, "rise=")) {
       auto valstr = StringRef{first + str_size("rise="), end};
       if (valstr.empty()) {
@@ -1035,12 +1030,12 @@ int parse_downstream_params(DownstreamParams &out,
       }
 
       auto n = util::parse_uint(valstr);
-      if (n == -1) {
+      if (!n) {
         LOG(ERROR) << "backend: rise: non-negative integer is expected";
         return -1;
       }
 
-      out.rise = n;
+      out.rise = *n;
     } else if (util::strieq_l("tls", param)) {
       out.tls = true;
     } else if (util::strieq_l("no-tls", param)) {
@@ -1108,13 +1103,13 @@ int parse_downstream_params(DownstreamParams &out,
       out.mruby = valstr;
     } else if (util::istarts_with_l(param, "read-timeout=")) {
       if (parse_downstream_param_duration(
-              out.read_timeout, StringRef::from_lit("read-timeout"),
+              out.read_timeout, "read-timeout"_sr,
               StringRef{first + str_size("read-timeout="), end}) == -1) {
         return -1;
       }
     } else if (util::istarts_with_l(param, "write-timeout=")) {
       if (parse_downstream_param_duration(
-              out.write_timeout, StringRef::from_lit("write-timeout"),
+              out.write_timeout, "write-timeout"_sr,
               StringRef{first + str_size("write-timeout="), end}) == -1) {
         return -1;
       }
@@ -1127,12 +1122,12 @@ int parse_downstream_params(DownstreamParams &out,
       }
 
       auto n = util::parse_uint(valstr);
-      if (n < 1 || n > 256) {
+      if (!n || (n < 1 || n > 256)) {
         LOG(ERROR)
             << "backend: weight: non-negative integer [1, 256] is expected";
         return -1;
       }
-      out.weight = n;
+      out.weight = *n;
     } else if (util::istarts_with_l(param, "group=")) {
       auto valstr = StringRef{first + str_size("group="), end};
       if (valstr.empty()) {
@@ -1149,12 +1144,12 @@ int parse_downstream_params(DownstreamParams &out,
       }
 
       auto n = util::parse_uint(valstr);
-      if (n < 1 || n > 256) {
+      if (!n || (n < 1 || n > 256)) {
         LOG(ERROR) << "backend: group-weight: non-negative integer [1, 256] is "
                       "expected";
         return -1;
       }
-      out.group_weight = n;
+      out.group_weight = *n;
     } else if (util::strieq_l("dnf", param)) {
       out.dnf = true;
     } else if (!param.empty()) {
@@ -1235,12 +1230,12 @@ int parse_mapping(Config *config, DownstreamAddrConfig &addr,
       // This effectively makes empty pattern to "/".  2 for '/' and
       // terminal NULL character.
       auto iov = make_byte_ref(downstreamconf.balloc, raw_pattern.size() + 2);
-      auto p = iov.base;
-      p = std::copy(std::begin(raw_pattern), std::end(raw_pattern), p);
-      util::inp_strlower(iov.base, p);
+      auto p = std::copy(std::begin(raw_pattern), std::end(raw_pattern),
+                         std::begin(iov));
+      util::inp_strlower(std::begin(iov), p);
       *p++ = '/';
       *p = '\0';
-      pattern = StringRef{iov.base, p};
+      pattern = StringRef{std::span{std::begin(iov), p}};
     } else {
       auto path = http2::normalize_path_colon(
           downstreamconf.balloc, StringRef{slash, std::end(raw_pattern)},
@@ -1248,12 +1243,11 @@ int parse_mapping(Config *config, DownstreamAddrConfig &addr,
       auto iov = make_byte_ref(downstreamconf.balloc,
                                std::distance(std::begin(raw_pattern), slash) +
                                    path.size() + 1);
-      auto p = iov.base;
-      p = std::copy(std::begin(raw_pattern), slash, p);
-      util::inp_strlower(iov.base, p);
+      auto p = std::copy(std::begin(raw_pattern), slash, std::begin(iov));
+      util::inp_strlower(std::begin(iov), p);
       p = std::copy(std::begin(path), std::end(path), p);
       *p = '\0';
-      pattern = StringRef{iov.base, p};
+      pattern = StringRef{std::span{std::begin(iov), p}};
     }
     auto it = pattern_addr_indexer.find(pattern);
     if (it != std::end(pattern_addr_indexer)) {
@@ -1385,10 +1379,10 @@ int parse_mapping(Config *config, DownstreamAddrConfig &addr,
         router.add_route(path, idx, path_is_wildcard);
 
         auto iov = make_byte_ref(downstreamconf.balloc, host.size() + 1);
-        auto p = iov.base;
-        p = std::reverse_copy(std::begin(host), std::end(host), p);
+        auto p = std::reverse_copy(std::begin(host), std::end(host),
+                                   std::begin(iov));
         *p = '\0';
-        auto rev_host = StringRef{iov.base, p};
+        auto rev_host = StringRef{std::span{std::begin(iov), p}};
 
         rw_router.add_route(rev_host, wildcard_patterns.size() - 1);
       } else {
@@ -1450,23 +1444,23 @@ int parse_error_page(std::vector<ErrorPage> &error_pages, const StringRef &opt,
   auto codestr = StringRef{std::begin(optarg), eq};
   unsigned int code;
 
-  if (codestr == StringRef::from_lit("*")) {
+  if (codestr == "*"_sr) {
     code = 0;
   } else {
     auto n = util::parse_uint(codestr);
 
-    if (n == -1 || n < 400 || n > 599) {
+    if (!n || n < 400 || n > 599) {
       LOG(ERROR) << opt << ": bad code: '" << codestr << "'";
       return -1;
     }
 
-    code = static_cast<unsigned int>(n);
+    code = static_cast<unsigned int>(*n);
   }
 
   auto path = StringRef{eq + 1, std::end(optarg)};
 
   std::vector<uint8_t> content;
-  auto fd = open(path.c_str(), O_RDONLY);
+  auto fd = open(path.data(), O_RDONLY);
   if (fd == -1) {
     auto error = errno;
     LOG(ERROR) << opt << ": " << optarg << ": "
@@ -1551,7 +1545,7 @@ int read_tls_sct_from_dir(std::vector<uint8_t> &dst, const StringRef &opt,
                           const StringRef &dir_path) {
   std::array<char, STRERROR_BUFSIZE> errbuf;
 
-  auto dir = opendir(dir_path.c_str());
+  auto dir = opendir(dir_path.data());
   if (dir == nullptr) {
     auto error = errno;
     LOG(ERROR) << opt << ": " << dir_path << ": "
@@ -1667,7 +1661,7 @@ namespace {
 int parse_psk_secrets(Config *config, const StringRef &path) {
   auto &tlsconf = config->tls;
 
-  std::ifstream f(path.c_str(), std::ios::binary);
+  std::ifstream f(path.data(), std::ios::binary);
   if (!f) {
     LOG(ERROR) << SHRPX_OPT_PSK_SECRETS << ": could not open file " << path;
     return -1;
@@ -1733,7 +1727,7 @@ namespace {
 int parse_client_psk_secrets(Config *config, const StringRef &path) {
   auto &tlsconf = config->tls;
 
-  std::ifstream f(path.c_str(), std::ios::binary);
+  std::ifstream f(path.data(), std::ios::binary);
   if (!f) {
     LOG(ERROR) << SHRPX_OPT_CLIENT_PSK_SECRETS << ": could not open file "
                << path;
@@ -1776,8 +1770,8 @@ int parse_client_psk_secrets(Config *config, const StringRef &path) {
     tlsconf.client.psk.identity =
         make_string_ref(config->balloc, StringRef{std::begin(line), sep_it});
 
-    tlsconf.client.psk.secret =
-        util::decode_hex(config->balloc, StringRef{sep_it + 1, std::end(line)});
+    tlsconf.client.psk.secret = StringRef{util::decode_hex(
+        config->balloc, StringRef{sep_it + 1, std::end(line)})};
 
     return 0;
   }
@@ -2831,7 +2825,7 @@ int option_lookup_token(const char *name, size_t namelen) {
 int parse_config(Config *config, const StringRef &opt, const StringRef &optarg,
                  std::set<StringRef> &included_set,
                  std::map<StringRef, size_t> &pattern_addr_indexer) {
-  auto optid = option_lookup_token(opt.c_str(), opt.size());
+  auto optid = option_lookup_token(opt.data(), opt.size());
   return parse_config(config, optid, opt, optarg, included_set,
                       pattern_addr_indexer);
 }
@@ -3191,7 +3185,7 @@ int parse_config(Config *config, int optid, const StringRef &opt,
 
     return 0;
   case SHRPX_OPTID_USER: {
-    auto pwd = getpwnam(optarg.c_str());
+    auto pwd = getpwnam(optarg.data());
     if (!pwd) {
       LOG(ERROR) << opt << ": failed to get uid from " << optarg << ": "
                  << xsi_strerror(errno, errbuf.data(), errbuf.size());
@@ -3240,7 +3234,7 @@ int parse_config(Config *config, int optid, const StringRef &opt,
     if (!params.sct_dir.empty()) {
       // Make sure that dir_path is NULL terminated string.
       if (read_tls_sct_from_dir(sct_data, opt,
-                                StringRef{params.sct_dir.str()}) != 0) {
+                                StringRef{std::string{params.sct_dir}}) != 0) {
         return -1;
       }
     }
@@ -3329,10 +3323,10 @@ int parse_config(Config *config, int optid, const StringRef &opt,
     proxy = {};
     // parse URI and get hostname, port and optionally userinfo.
     http_parser_url u{};
-    int rv = http_parser_parse_url(optarg.c_str(), optarg.size(), 0, &u);
+    int rv = http_parser_parse_url(optarg.data(), optarg.size(), 0, &u);
     if (rv == 0) {
       if (u.field_set & UF_USERINFO) {
-        auto uf = util::get_uri_field(optarg.c_str(), u, UF_USERINFO);
+        auto uf = util::get_uri_field(optarg.data(), u, UF_USERINFO);
         // Surprisingly, u.field_set & UF_USERINFO is nonzero even if
         // userinfo component is empty string.
         if (!uf.empty()) {
@@ -3341,7 +3335,7 @@ int parse_config(Config *config, int optid, const StringRef &opt,
       }
       if (u.field_set & UF_HOST) {
         proxy.host = make_string_ref(
-            config->balloc, util::get_uri_field(optarg.c_str(), u, UF_HOST));
+            config->balloc, util::get_uri_field(optarg.data(), u, UF_HOST));
       } else {
         LOG(ERROR) << opt << ": no hostname specified";
         return -1;
@@ -3586,7 +3580,7 @@ int parse_config(Config *config, int optid, const StringRef &opt,
 
     included_set.insert(optarg);
     auto rv =
-        load_config(config, optarg.c_str(), included_set, pattern_addr_indexer);
+        load_config(config, optarg.data(), included_set, pattern_addr_indexer);
     included_set.erase(optarg);
 
     if (rv != 0) {
@@ -3744,7 +3738,7 @@ int parse_config(Config *config, int optid, const StringRef &opt,
       if (optarg[0] == '_') {
         fwdconf.by_obfuscated = make_string_ref(config->balloc, optarg);
       } else {
-        fwdconf.by_obfuscated = StringRef::from_lit("");
+        fwdconf.by_obfuscated = ""_sr;
       }
       break;
     case SHRPX_OPTID_FORWARDED_FOR:
@@ -3984,7 +3978,7 @@ int parse_config(Config *config, int optid, const StringRef &opt,
     return parse_tls_proto_version(config->tls.max_proto_version, opt, optarg);
   case SHRPX_OPTID_REDIRECT_HTTPS_PORT: {
     auto n = util::parse_uint(optarg);
-    if (n == -1 || n < 0 || n > 65535) {
+    if (!n || n < 0 || n > 65535) {
       LOG(ERROR) << opt
                  << ": bad value.  Specify an integer in the range [0, "
                     "65535], inclusive";
@@ -4268,49 +4262,49 @@ int load_config(Config *config, const char *filename,
 StringRef str_syslog_facility(int facility) {
   switch (facility) {
   case (LOG_AUTH):
-    return StringRef::from_lit("auth");
+    return "auth"_sr;
 #ifdef LOG_AUTHPRIV
   case (LOG_AUTHPRIV):
-    return StringRef::from_lit("authpriv");
+    return "authpriv"_sr;
 #endif // LOG_AUTHPRIV
   case (LOG_CRON):
-    return StringRef::from_lit("cron");
+    return "cron"_sr;
   case (LOG_DAEMON):
-    return StringRef::from_lit("daemon");
+    return "daemon"_sr;
 #ifdef LOG_FTP
   case (LOG_FTP):
-    return StringRef::from_lit("ftp");
+    return "ftp"_sr;
 #endif // LOG_FTP
   case (LOG_KERN):
-    return StringRef::from_lit("kern");
+    return "kern"_sr;
   case (LOG_LOCAL0):
-    return StringRef::from_lit("local0");
+    return "local0"_sr;
   case (LOG_LOCAL1):
-    return StringRef::from_lit("local1");
+    return "local1"_sr;
   case (LOG_LOCAL2):
-    return StringRef::from_lit("local2");
+    return "local2"_sr;
   case (LOG_LOCAL3):
-    return StringRef::from_lit("local3");
+    return "local3"_sr;
   case (LOG_LOCAL4):
-    return StringRef::from_lit("local4");
+    return "local4"_sr;
   case (LOG_LOCAL5):
-    return StringRef::from_lit("local5");
+    return "local5"_sr;
   case (LOG_LOCAL6):
-    return StringRef::from_lit("local6");
+    return "local6"_sr;
   case (LOG_LOCAL7):
-    return StringRef::from_lit("local7");
+    return "local7"_sr;
   case (LOG_LPR):
-    return StringRef::from_lit("lpr");
+    return "lpr"_sr;
   case (LOG_MAIL):
-    return StringRef::from_lit("mail");
+    return "mail"_sr;
   case (LOG_SYSLOG):
-    return StringRef::from_lit("syslog");
+    return "syslog"_sr;
   case (LOG_USER):
-    return StringRef::from_lit("user");
+    return "user"_sr;
   case (LOG_UUCP):
-    return StringRef::from_lit("uucp");
+    return "uucp"_sr;
   default:
-    return StringRef::from_lit("(unknown)");
+    return "(unknown)"_sr;
   }
 }
 
@@ -4405,15 +4399,15 @@ int int_syslog_facility(const StringRef &strfacility) {
 StringRef strproto(Proto proto) {
   switch (proto) {
   case Proto::NONE:
-    return StringRef::from_lit("none");
+    return "none"_sr;
   case Proto::HTTP1:
-    return StringRef::from_lit("http/1.1");
+    return "http/1.1"_sr;
   case Proto::HTTP2:
-    return StringRef::from_lit("h2");
+    return "h2"_sr;
   case Proto::HTTP3:
-    return StringRef::from_lit("h3");
+    return "h3"_sr;
   case Proto::MEMCACHED:
-    return StringRef::from_lit("memcached");
+    return "memcached"_sr;
   }
 
   // gcc needs this.
@@ -4436,7 +4430,7 @@ int compute_affinity_hash(std::vector<AffinityHash> &res, size_t idx,
   std::array<uint8_t, 32> buf;
 
   for (auto i = 0; i < 20; ++i) {
-    auto t = s.str();
+    auto t = std::string{s};
     t += i;
 
     rv = util::sha256(buf.data(), StringRef{t});
@@ -4473,13 +4467,13 @@ int configure_downstream_group(Config *config, bool http2_proxy,
 
   if (addr_groups.empty()) {
     DownstreamAddrConfig addr{};
-    addr.host = StringRef::from_lit(DEFAULT_DOWNSTREAM_HOST);
+    addr.host = DEFAULT_DOWNSTREAM_HOST;
     addr.port = DEFAULT_DOWNSTREAM_PORT;
     addr.proto = Proto::HTTP1;
     addr.weight = 1;
     addr.group_weight = 1;
 
-    DownstreamAddrGroupConfig g(StringRef::from_lit("/"));
+    DownstreamAddrGroupConfig g("/"_sr);
     g.addrs.push_back(std::move(addr));
     router.add_route(g.pattern, addr_groups.size());
     addr_groups.push_back(std::move(g));
@@ -4503,14 +4497,14 @@ int configure_downstream_group(Config *config, bool http2_proxy,
   ssize_t catch_all_group = -1;
   for (size_t i = 0; i < addr_groups.size(); ++i) {
     auto &g = addr_groups[i];
-    if (g.pattern == StringRef::from_lit("/")) {
+    if (g.pattern == "/"_sr) {
       catch_all_group = i;
     }
     if (LOG_ENABLED(INFO)) {
       LOG(INFO) << "Host-path pattern: group " << i << ": '" << g.pattern
                 << "'";
       for (auto &addr : g.addrs) {
-        LOG(INFO) << "group " << i << " -> " << addr.host.c_str()
+        LOG(INFO) << "group " << i << " -> " << addr.host.data()
                   << (addr.host_unix ? "" : ":" + util::utos(addr.port))
                   << ", proto=" << strproto(addr.proto)
                   << (addr.tls ? ", tls" : "");
@@ -4575,9 +4569,9 @@ int configure_downstream_group(Config *config, bool http2_proxy,
         // for AF_UNIX socket, we use "localhost" as host for backend
         // hostport.  This is used as Host header field to backend and
         // not going to be passed to any syscalls.
-        addr.hostport = StringRef::from_lit("localhost");
+        addr.hostport = "localhost"_sr;
 
-        auto path = addr.host.c_str();
+        auto path = addr.host.data();
         auto pathlen = addr.host.size();
 
         if (pathlen + 1 > sizeof(addr.addr.su.un.sun_path)) {
@@ -4606,7 +4600,7 @@ int configure_downstream_group(Config *config, bool http2_proxy,
           util::make_hostport(std::begin(hostport_buf), addr.host, addr.port);
 
       if (!addr.dns) {
-        if (resolve_hostname(&addr.addr, addr.host.c_str(), addr.port,
+        if (resolve_hostname(&addr.addr, addr.host.data(), addr.port,
                              downstreamconf.family, resolve_flags) == -1) {
           LOG(FATAL) << "Resolving backend address failed: " << hostport;
           return -1;

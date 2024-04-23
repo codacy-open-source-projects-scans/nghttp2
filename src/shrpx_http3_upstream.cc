@@ -1404,7 +1404,7 @@ int Http3Upstream::on_downstream_header_complete(Downstream *downstream) {
     }
 
     auto iov = make_byte_ref(balloc, len + 1);
-    auto p = iov.base;
+    auto p = std::begin(iov);
     if (via) {
       p = std::copy(std::begin(via->value), std::end(via->value), p);
       p = util::copy_lit(p, ", ");
@@ -1412,7 +1412,8 @@ int Http3Upstream::on_downstream_header_complete(Downstream *downstream) {
     p = http::create_via_header_value(p, resp.http_major, resp.http_minor);
     *p = '\0';
 
-    nva.push_back(http3::make_nv_ls_nocopy("via", StringRef{iov.base, p}));
+    nva.push_back(http3::make_nv_ls_nocopy(
+        "via", StringRef{std::span{std::begin(iov), p}}));
   }
 
   for (auto &p : httpconf.add_response_headers) {
@@ -2242,7 +2243,7 @@ int Http3Upstream::http_end_request_headers(Downstream *downstream, int fin) {
   if (LOG_ENABLED(INFO)) {
     std::stringstream ss;
     for (auto &nv : nva) {
-      if (nv.name == "authorization") {
+      if (nv.name == "authorization"_sr) {
         ss << TTY_HTTP_HD << nv.name << TTY_RST << ": <redacted>\n";
         continue;
       }
@@ -2256,7 +2257,8 @@ int Http3Upstream::http_end_request_headers(Downstream *downstream, int fin) {
   auto content_length = req.fs.header(http2::HD_CONTENT_LENGTH);
   if (content_length) {
     // libnghttp3 guarantees this can be parsed
-    req.fs.content_length = util::parse_uint(content_length->value);
+    req.fs.content_length =
+        util::parse_uint(content_length->value).value_or(-1);
   }
 
   // presence of mandatory header fields are guaranteed by libnghttp3.
@@ -2300,8 +2302,7 @@ int Http3Upstream::http_end_request_headers(Downstream *downstream, int fin) {
   }
 
   if (path) {
-    if (method_token == HTTP_OPTIONS &&
-        path->value == StringRef::from_lit("*")) {
+    if (method_token == HTTP_OPTIONS && path->value == "*"_sr) {
       // Server-wide OPTIONS request.  Path is empty.
     } else if (config->http2_proxy &&
                faddr->alt_mode == UpstreamAltMode::NONE) {
@@ -2314,7 +2315,7 @@ int Http3Upstream::http_end_request_headers(Downstream *downstream, int fin) {
 
   auto connect_proto = req.fs.header(http2::HD__PROTOCOL);
   if (connect_proto) {
-    if (connect_proto->value != "websocket") {
+    if (connect_proto->value != "websocket"_sr) {
       if (error_reply(downstream, 400) != 0) {
         return -1;
       }
@@ -2902,12 +2903,12 @@ int Http3Upstream::open_qlog_file(const StringRef &dir,
                                   const ngtcp2_cid &scid) const {
   std::array<char, sizeof("20141115T125824.741+0900")> buf;
 
-  auto path = dir.str();
+  auto path = std::string{dir};
   path += '/';
   path +=
       util::format_iso8601_basic(buf.data(), std::chrono::system_clock::now());
   path += '-';
-  path += util::format_hex(scid.data, scid.datalen);
+  path += util::format_hex(std::span{scid.data, scid.datalen});
   path += ".sqlog";
 
   int fd;
