@@ -555,9 +555,9 @@ void Worker::process_events() {
       faddr = &quic_upstream_addrs_[wev.quic_pkt->upstream_addr_index];
     }
 
-    quic_conn_handler_.handle_packet(
-        faddr, wev.quic_pkt->remote_addr, wev.quic_pkt->local_addr,
-        wev.quic_pkt->pi, wev.quic_pkt->data.data(), wev.quic_pkt->data.size());
+    quic_conn_handler_.handle_packet(faddr, wev.quic_pkt->remote_addr,
+                                     wev.quic_pkt->local_addr, wev.quic_pkt->pi,
+                                     wev.quic_pkt->data);
 
     break;
   }
@@ -1229,13 +1229,13 @@ const UpstreamAddr *Worker::find_quic_upstream_addr(const Address &local_addr) {
     if (faddr.port == 443 || faddr.port == 80) {
       switch (faddr.family) {
       case AF_INET:
-        if (util::streq(faddr.hostport, "0.0.0.0"_sr)) {
+        if (faddr.hostport == "0.0.0.0"_sr) {
           fallback_faddr = &faddr;
         }
 
         break;
       case AF_INET6:
-        if (util::streq(faddr.hostport, "[::]"_sr)) {
+        if (faddr.hostport == "[::]"_sr) {
           fallback_faddr = &faddr;
         }
 

@@ -322,11 +322,11 @@ int ClientHandler::write_tls() {
 int ClientHandler::read_quic(const UpstreamAddr *faddr,
                              const Address &remote_addr,
                              const Address &local_addr,
-                             const ngtcp2_pkt_info &pi, const uint8_t *data,
-                             size_t datalen) {
+                             const ngtcp2_pkt_info &pi,
+                             std::span<const uint8_t> data) {
   auto upstream = static_cast<Http3Upstream *>(upstream_.get());
 
-  return upstream->on_read(faddr, remote_addr, local_addr, pi, data, datalen);
+  return upstream->on_read(faddr, remote_addr, local_addr, pi, data);
 }
 
 int ClientHandler::write_quic() { return upstream_->on_write(); }
@@ -1348,7 +1348,7 @@ int ClientHandler::proxy_protocol_read() {
     return -1;
   }
 
-  if (!util::streq(HEADER, StringRef{rb_.pos(), HEADER.size()})) {
+  if (HEADER != StringRef{rb_.pos(), HEADER.size()}) {
     if (LOG_ENABLED(INFO)) {
       CLOG(INFO, this) << "PROXY-protocol-v1: Bad PROXY protocol version 1 ID";
     }
@@ -1396,7 +1396,7 @@ int ClientHandler::proxy_protocol_read() {
       }
       return -1;
     }
-    if (!util::streq_l("UNKNOWN", rb_.pos(), 7)) {
+    if ("UNKNOWN"_sr != StringRef{rb_.pos(), 7}) {
       if (LOG_ENABLED(INFO)) {
         CLOG(INFO, this) << "PROXY-protocol-v1: Unknown INET protocol family";
       }

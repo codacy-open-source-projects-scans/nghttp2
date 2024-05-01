@@ -391,7 +391,7 @@ uint32_t Downstream::find_affinity_cookie(const StringRef &name) {
         return 0;
       }
 
-      if (!util::streq(name, StringRef{it, end})) {
+      if (name != StringRef{it, end}) {
         it = std::find(it, std::end(kv.value), ';');
         continue;
       }
@@ -870,15 +870,14 @@ void Downstream::inspect_http1_request() {
     if (upgrade) {
       const auto &val = upgrade->value;
       // TODO Perform more strict checking for upgrade headers
-      if (util::streq_l(NGHTTP2_CLEARTEXT_PROTO_VERSION_ID, val.data(),
-                        val.size())) {
+      if (NGHTTP2_CLEARTEXT_PROTO_VERSION_ID ""_sr == val) {
         req_.http2_upgrade_seen = true;
       } else {
         req_.upgrade_request = true;
 
         // TODO Should we check Sec-WebSocket-Key, and
         // Sec-WebSocket-Version as well?
-        if (util::strieq_l("websocket", val)) {
+        if (util::strieq("websocket"_sr, val)) {
           req_.connect_proto = ConnectProto::WEBSOCKET;
         }
       }

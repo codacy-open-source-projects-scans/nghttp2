@@ -677,7 +677,7 @@ int alpn_select_proto_cb(SSL *ssl, const unsigned char **out,
       auto proto_len = *p;
 
       if (proto_id + proto_len <= end &&
-          util::streq(target_proto_id, StringRef{proto_id, proto_len})) {
+          target_proto_id == StringRef{proto_id, proto_len}) {
 
         *out = reinterpret_cast<const unsigned char *>(proto_id);
         *outlen = proto_len;
@@ -1685,7 +1685,7 @@ bool tls_hostname_match(const StringRef &pattern, const StringRef &hostname) {
   if (ptLeftLabelEnd == std::end(pattern) ||
       std::find(ptLeftLabelEnd + 1, std::end(pattern), '.') ==
           std::end(pattern) ||
-      ptLeftLabelEnd < ptWildcard || util::istarts_with_l(pattern, "xn--")) {
+      ptLeftLabelEnd < ptWildcard || util::istarts_with(pattern, "xn--"_sr)) {
     wildcardEnabled = false;
   }
 
@@ -1802,7 +1802,7 @@ int verify_numeric_hostname(X509 *cert, const StringRef &hostname,
   }
 
   // cn is not NULL terminated
-  auto rv = util::streq(hostname, cn);
+  auto rv = hostname == cn;
   OPENSSL_free(const_cast<char *>(cn.data()));
 
   if (rv) {
@@ -2153,7 +2153,7 @@ int cert_lookup_tree_add_ssl_ctx(
 bool in_proto_list(const std::vector<StringRef> &protos,
                    const StringRef &needle) {
   for (auto &proto : protos) {
-    if (util::streq(proto, needle)) {
+    if (proto == needle) {
       return true;
     }
   }
@@ -2377,17 +2377,17 @@ SSL_SESSION *reuse_tls_session(const TLSSessionCache &cache) {
 
 int proto_version_from_string(const StringRef &v) {
 #ifdef TLS1_3_VERSION
-  if (util::strieq_l("TLSv1.3", v)) {
+  if (util::strieq("TLSv1.3"_sr, v)) {
     return TLS1_3_VERSION;
   }
 #endif // TLS1_3_VERSION
-  if (util::strieq_l("TLSv1.2", v)) {
+  if (util::strieq("TLSv1.2"_sr, v)) {
     return TLS1_2_VERSION;
   }
-  if (util::strieq_l("TLSv1.1", v)) {
+  if (util::strieq("TLSv1.1"_sr, v)) {
     return TLS1_1_VERSION;
   }
-  if (util::strieq_l("TLSv1.0", v)) {
+  if (util::strieq("TLSv1.0"_sr, v)) {
     return TLS1_VERSION;
   }
   return -1;

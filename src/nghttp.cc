@@ -976,9 +976,9 @@ int HttpClient::on_upgrade_connect() {
     // If the request contains upload data, use OPTIONS * to upgrade
     req = "OPTIONS *";
   } else {
-    auto meth = std::find_if(
-        std::begin(config.headers), std::end(config.headers),
-        [](const Header &kv) { return util::streq_l(":method", kv.name); });
+    auto meth =
+        std::find_if(std::begin(config.headers), std::end(config.headers),
+                     [](const auto &kv) { return ":method"_sr == kv.name; });
 
     if (meth == std::end(config.headers)) {
       req = "GET ";
@@ -1800,8 +1800,8 @@ void check_response_header(nghttp2_session *session, Request *req) {
 
   for (auto &nv : req->res_nva) {
     if ("content-encoding" == nv.name) {
-      gzip = util::strieq_l("gzip", nv.value) ||
-             util::strieq_l("deflate", nv.value);
+      gzip = util::strieq("gzip"_sr, nv.value) ||
+             util::strieq("deflate"_sr, nv.value);
       continue;
     }
   }
@@ -1915,10 +1915,12 @@ int on_header_callback(nghttp2_session *session, const nghttp2_frame *frame,
 
     req->header_buffer_size += namelen + valuelen;
 
-    auto token = http2::lookup_token(name, namelen);
+    auto nameref = StringRef{name, namelen};
+    auto valueref = StringRef{value, valuelen};
+    auto token = http2::lookup_token(nameref);
 
     http2::index_header(req->res_hdidx, token, req->res_nva.size());
-    http2::add_header(req->res_nva, name, namelen, value, valuelen,
+    http2::add_header(req->res_nva, nameref, valueref,
                       flags & NGHTTP2_NV_FLAG_NO_INDEX, token);
     break;
   }
@@ -1939,10 +1941,12 @@ int on_header_callback(nghttp2_session *session, const nghttp2_frame *frame,
 
     req->header_buffer_size += namelen + valuelen;
 
-    auto token = http2::lookup_token(name, namelen);
+    auto nameref = StringRef{name, namelen};
+    auto valueref = StringRef{value, valuelen};
+    auto token = http2::lookup_token(nameref);
 
     http2::index_header(req->req_hdidx, token, req->req_nva.size());
-    http2::add_header(req->req_nva, name, namelen, value, valuelen,
+    http2::add_header(req->req_nva, nameref, valueref,
                       flags & NGHTTP2_NV_FLAG_NO_INDEX, token);
     break;
   }

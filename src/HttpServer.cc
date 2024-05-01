@@ -1248,8 +1248,8 @@ void prepare_response(Stream *stream, Http2Handler *hd,
   auto query_pos = std::find(std::begin(reqpath), std::end(reqpath), '?');
   if (query_pos != std::end(reqpath)) {
     // Do not response to this request to allow clients to test timeouts.
-    if (util::streq_l("nghttpd_do_not_respond_to_req=yes",
-                      StringRef{query_pos, std::end(reqpath)})) {
+    if ("nghttpd_do_not_respond_to_req=yes"_sr ==
+        StringRef{query_pos, std::end(reqpath)}) {
       return;
     }
     raw_path = StringRef{std::begin(reqpath), query_pos};
@@ -1427,7 +1427,7 @@ int on_header_callback2(nghttp2_session *session, const nghttp2_frame *frame,
 
   stream->header_buffer_size += namebuf.len + valuebuf.len;
 
-  auto token = http2::lookup_token(namebuf.base, namebuf.len);
+  auto token = http2::lookup_token(StringRef{namebuf.base, namebuf.len});
 
   auto &header = stream->header;
 
@@ -1530,7 +1530,7 @@ int hd_on_frame_recv_callback(nghttp2_session *session,
 
       auto expect100 = stream->header.expect;
 
-      if (util::strieq_l("100-continue", expect100)) {
+      if (util::strieq("100-continue"_sr, expect100)) {
         hd->submit_non_final_response("100", frame->hd.stream_id);
       }
 

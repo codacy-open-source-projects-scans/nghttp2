@@ -867,7 +867,7 @@ bool check_path(const std::string &path) {
          path.find('\\') == std::string::npos &&
          path.find("/../") == std::string::npos &&
          path.find("/./") == std::string::npos &&
-         !util::ends_with_l(path, "/..") && !util::ends_with_l(path, "/.");
+         !util::ends_with(path, "/.."_sr) && !util::ends_with(path, "/."_sr);
 }
 
 int64_t to_time64(const timeval &tv) {
@@ -875,8 +875,8 @@ int64_t to_time64(const timeval &tv) {
 }
 
 bool check_h2_is_selected(const StringRef &proto) {
-  return streq(NGHTTP2_H2, proto) || streq(NGHTTP2_H2_16, proto) ||
-         streq(NGHTTP2_H2_14, proto);
+  return NGHTTP2_H2 == proto || NGHTTP2_H2_16 == proto ||
+         NGHTTP2_H2_14 == proto;
 }
 
 namespace {
