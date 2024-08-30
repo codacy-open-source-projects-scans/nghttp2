@@ -568,15 +568,15 @@ namespace {
 // with given costs.  swapcost, subcost, addcost and delcost are cost
 // to swap 2 adjacent characters, substitute characters, add character
 // and delete character respectively.
-int levenshtein(const char *a, int alen, const char *b, int blen, int swapcost,
-                int subcost, int addcost, int delcost) {
+int levenshtein(const char *a, size_t alen, const char *b, size_t blen,
+                int swapcost, int subcost, int addcost, int delcost) {
   auto dp = std::vector<std::vector<int>>(3, std::vector<int>(blen + 1));
-  for (int i = 0; i <= blen; ++i) {
+  for (size_t i = 0; i <= blen; ++i) {
     dp[1][i] = i * addcost;
   }
-  for (int i = 1; i <= alen; ++i) {
+  for (size_t i = 1; i <= alen; ++i) {
     dp[0][0] = i * delcost;
-    for (int j = 1; j <= blen; ++j) {
+    for (size_t j = 1; j <= blen; ++j) {
       dp[0][j] = dp[1][j - 1] + (a[i - 1] == b[j - 1] ? 0 : subcost);
       if (i >= 2 && j >= 2 && a[i - 1] != b[j - 1] && a[i - 2] == b[j - 1] &&
           a[i - 1] == b[j - 2]) {
@@ -628,7 +628,7 @@ void show_candidates(const char *unkopt, const option *options) {
     }
     // cost values are borrowed from git, help.c.
     int sim =
-        levenshtein(unkopt, unkoptlen, options[i].name, optnamelen, 0, 2, 1, 3);
+      levenshtein(unkopt, unkoptlen, options[i].name, optnamelen, 0, 2, 1, 3);
     cands.emplace_back(sim, options[i].name);
   }
   if (prefix_match == 1 || cands.empty()) {
@@ -708,9 +708,9 @@ bool porteq(const char *uri1, const http_parser_url &u1, const char *uri2,
             const http_parser_url &u2) {
   uint16_t port1, port2;
   port1 =
-      util::has_uri_field(u1, UF_PORT) ? u1.port : get_default_port(uri1, u1);
+    util::has_uri_field(u1, UF_PORT) ? u1.port : get_default_port(uri1, u1);
   port2 =
-      util::has_uri_field(u2, UF_PORT) ? u2.port : get_default_port(uri2, u2);
+    util::has_uri_field(u2, UF_PORT) ? u2.port : get_default_port(uri2, u2);
   return port1 == port2;
 }
 
