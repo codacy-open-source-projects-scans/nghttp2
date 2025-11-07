@@ -1,7 +1,7 @@
 /*
  * nghttp2 - HTTP/2 C Library
  *
- * Copyright (c) 2016 Tatsuhiro Tsujikawa
+ * Copyright (c) 2025 nghttp2 contributors
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -22,26 +22,23 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#ifndef SHRPX_EXEC_H
-#define SHRPX_EXEC_H
+#ifndef SIPHASH_TEST_H
+#define SIPHASH_TEST_H
 
-#include "unistd.h"
+#ifdef HAVE_CONFIG_H
+#  include <config.h>
+#endif // defined(HAVE_CONFIG_H)
 
-namespace shrpx {
+#define MUNIT_ENABLE_ASSERT_ALIASES
 
-struct Process {
-  pid_t pid;
-  // fd to read from process
-  int rfd;
-};
+#include "munit.h"
 
-// Executes command |argv| after forking current process.  The command
-// should not expect to read from stdin.  Parent process can read the
-// stdout from command using proc.rfd.  On success, this function
-// returns 0, and process information is stored in |proc|.  Otherwise,
-// returns -1.
-int exec_read_command(Process &proc, char *const argv[]);
+namespace nghttp2 {
 
-} // namespace shrpx
+extern const MunitSuite siphash_suite;
 
-#endif // SHRPX_EXEC_H
+munit_void_test_decl(test_siphash)
+
+} // namespace nghttp2
+
+#endif // !defined(SIPHASH_TEST_H)
