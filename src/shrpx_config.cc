@@ -182,7 +182,7 @@ read_tls_ticket_key_file(const std::vector<std::string_view> &files,
   keys.resize(files.size());
   auto enc_keylen = static_cast<size_t>(EVP_CIPHER_key_length(cipher));
   auto hmac_keylen = static_cast<size_t>(EVP_MD_size(hmac));
-  if (cipher == EVP_aes_128_cbc()) {
+  if (cipher == nghttp2::tls::aes_128_cbc()) {
     // backward compatibility, as a legacy of using same file format
     // with nginx and apache.
     hmac_keylen = 16;
@@ -1441,7 +1441,7 @@ int parse_error_page(std::vector<ErrorPage> &error_pages,
     return -1;
   }
 
-  auto fd_closer = defer(close, fd);
+  auto fd_closer = defer([fd] { close(fd); });
 
   std::array<uint8_t, 4096> buf;
   for (;;) {
@@ -1532,7 +1532,7 @@ int read_tls_sct_from_dir(std::vector<uint8_t> &dst,
     return -1;
   }
 
-  auto closer = defer(closedir, dir);
+  auto closer = defer([dir] { closedir(dir); });
 
   // 2 bytes total length field
   auto len_idx = dst.size();
@@ -1574,7 +1574,7 @@ int read_tls_sct_from_dir(std::vector<uint8_t> &dst,
       return -1;
     }
 
-    auto closer = defer(close, fd);
+    auto closer = defer([fd] { close(fd); });
 
     // 2 bytes length field for this SCT.
     auto len_idx = dst.size();
@@ -3615,9 +3615,9 @@ int parse_config(
   }
   case SHRPX_OPTID_TLS_TICKET_KEY_CIPHER:
     if (util::strieq("aes-128-cbc"sv, optarg)) {
-      config->tls.ticket.cipher = EVP_aes_128_cbc();
+      config->tls.ticket.cipher = nghttp2::tls::aes_128_cbc();
     } else if (util::strieq("aes-256-cbc"sv, optarg)) {
-      config->tls.ticket.cipher = EVP_aes_256_cbc();
+      config->tls.ticket.cipher = nghttp2::tls::aes_256_cbc();
     } else {
       LOG(ERROR) << opt
                  << ": unsupported cipher for ticket encryption: " << optarg;
@@ -4788,7 +4788,7 @@ int resolve_hostname(Address *addr, const char *hostname, uint16_t port,
     return -1;
   }
 
-  auto res_d = defer(freeaddrinfo, res);
+  auto res_d = defer([res] { freeaddrinfo(res); });
 
   std::array<char, NI_MAXHOST> host;
   rv = getnameinfo(res->ai_addr, res->ai_addrlen, host.data(), host.size(),

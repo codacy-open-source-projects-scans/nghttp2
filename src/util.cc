@@ -75,6 +75,7 @@
 #include <nghttp2/nghttp2.h>
 
 #include "timegm.h"
+#include "tls.h"
 
 namespace nghttp2 {
 
@@ -1705,7 +1706,7 @@ int message_digest(uint8_t *res, const EVP_MD *meth,
     return -1;
   }
 
-  auto ctx_deleter = defer(EVP_MD_CTX_free, ctx);
+  auto ctx_deleter = defer([ctx] { EVP_MD_CTX_free(ctx); });
 
   rv = EVP_DigestInit_ex(ctx, meth, nullptr);
   if (rv != 1) {
@@ -1729,11 +1730,11 @@ int message_digest(uint8_t *res, const EVP_MD *meth,
 } // namespace
 
 int sha256(uint8_t *res, const std::string_view &s) {
-  return message_digest(res, EVP_sha256(), s);
+  return message_digest(res, tls::sha256(), s);
 }
 
 int sha1(uint8_t *res, const std::string_view &s) {
-  return message_digest(res, EVP_sha1(), s);
+  return message_digest(res, tls::sha1(), s);
 }
 
 std::string_view extract_host(const std::string_view &hostport) {

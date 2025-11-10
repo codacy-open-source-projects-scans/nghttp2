@@ -258,12 +258,12 @@ int generate_quic_hashed_connection_id(ngtcp2_cid &dest,
                                        const Address &local_addr,
                                        const ngtcp2_cid &cid) {
   auto ctx = EVP_MD_CTX_new();
-  auto d = defer(EVP_MD_CTX_free, ctx);
+  auto d = defer([ctx] { EVP_MD_CTX_free(ctx); });
 
   std::array<uint8_t, 32> h;
-  auto hlen = static_cast<unsigned int>(EVP_MD_size(EVP_sha256()));
+  auto hlen = static_cast<unsigned int>(EVP_MD_size(nghttp2::tls::sha256()));
 
-  if (!EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) ||
+  if (!EVP_DigestInit_ex(ctx, nghttp2::tls::sha256(), nullptr) ||
       !EVP_DigestUpdate(ctx, &remote_addr.su.sa, remote_addr.len) ||
       !EVP_DigestUpdate(ctx, &local_addr.su.sa, local_addr.len) ||
       !EVP_DigestUpdate(ctx, cid.data, cid.datalen) ||
@@ -374,8 +374,8 @@ int generate_quic_connection_id_encryption_key(std::span<uint8_t> key,
                                                std::span<const uint8_t> salt) {
   static constexpr auto info = "connection id encryption key"sv;
   ngtcp2_crypto_md sha256;
-  ngtcp2_crypto_md_init(
-    &sha256, reinterpret_cast<void *>(const_cast<EVP_MD *>(EVP_sha256())));
+  ngtcp2_crypto_md_init(&sha256, reinterpret_cast<void *>(const_cast<EVP_MD *>(
+                                   nghttp2::tls::sha256())));
 
   if (ngtcp2_crypto_hkdf(key.data(), key.size(), &sha256, secret.data(),
                          secret.size(), salt.data(), salt.size(),
@@ -400,7 +400,7 @@ select_quic_keying_material(const QUICKeyingMaterials &qkms, uint8_t km_id) {
 
 std::span<uint64_t, 2> generate_siphash_key() {
   // Use the same technique rust does.
-  thread_local static auto key = []() {
+  thread_local static auto key = [] {
     std::array<uint64_t, 2> key;
 
     auto s = as_writable_uint8_span(std::span{key});
