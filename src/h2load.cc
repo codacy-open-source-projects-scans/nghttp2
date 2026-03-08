@@ -263,8 +263,8 @@ void rate_period_timeout_w_cb(struct ev_loop *loop, ev_timer *w, int revents) {
       ++req_todo;
       --worker->nreqs_rem;
     }
-    auto client =
-      std::make_unique<Client>(worker->next_client_id++, worker, req_todo);
+    auto client_id = worker->next_client_id++;
+    auto client = std::make_unique<Client>(client_id, worker, req_todo);
 
     ++worker->nconns_made;
 
@@ -273,7 +273,7 @@ void rate_period_timeout_w_cb(struct ev_loop *loop, ev_timer *w, int revents) {
       client->fail();
     } else {
       if (worker->config->is_timing_based_mode()) {
-        worker->clients.push_back(client.release());
+        worker->clients.emplace(client_id, client.release());
       } else {
         client.release();
       }
@@ -317,7 +317,7 @@ void warmup_timeout_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   assert(worker->stats.req_started == 0);
   assert(worker->stats.req_done == 0);
 
-  for (auto client : worker->clients) {
+  for (const auto [_, client] : worker->clients) {
     if (client) {
       assert(client->req_todo == 0);
       assert(client->req_left == 1);
@@ -928,7 +928,7 @@ void Client::report_app_info() {
   }
 }
 
-void Client::terminate_session() {
+int Client::terminate_session() {
 #ifdef ENABLE_HTTP3
   if (config.is_quic()) {
     quic.close_requested = true;
@@ -936,9 +936,14 @@ void Client::terminate_session() {
 #endif // defined(ENABLE_HTTP3)
   if (session) {
     session->terminate();
+  } else {
+    return -1;
   }
+
   // http1 session needs writecb to tear down session.
   signal_write();
+
+  return 0;
 }
 
 void Client::on_request(int64_t stream_id) { streams[stream_id] = Stream(); }
@@ -1580,6 +1585,8 @@ void Client::signal_write() { ev_io_start(worker->loop, &wev); }
 
 void Client::try_new_connection() { new_connection_requested = true; }
 
+uint32_t Client::get_id() const { return id; }
+
 namespace {
 unsigned int get_ev_loop_flags() {
   if (ev_supported_backends() & ~ev_recommended_backends() & EVBACKEND_KQUEUE) {
@@ -1651,23 +1658,32 @@ Worker::~Worker() {
 }
 
 void Worker::stop_all_clients() {
-  for (auto client : clients) {
+  for (auto [_, client] : clients) {
     if (client) {
-      client->terminate_session();
+      if (client->terminate_session() != 0) {
+        client->fail();
+        free_client(client);
+        delete client;
+      }
     }
   }
 }
 
 void Worker::free_client(Client *deleted_client) {
-  for (auto &client : clients) {
-    if (client == deleted_client) {
-      client->req_todo = client->req_done;
-      stats.req_todo += client->req_todo;
-      auto index = as_unsigned(&client - &clients[0]);
-      clients[index] = nullptr;
-      return;
-    }
+  auto it = clients.find(deleted_client->get_id());
+  if (it == std::ranges::end(clients)) {
+    return;
   }
+
+  auto &client = (*it).second;
+  if (!client) {
+    return;
+  }
+
+  client->req_todo = client->req_done;
+  stats.req_todo += client->req_todo;
+
+  client = nullptr;
 }
 
 void Worker::run() {
@@ -1789,6 +1805,18 @@ SDStat compute_time_stat(const std::vector<double> &samples,
   res.sd = sqrt(q / static_cast<double>(sampling && n > 1 ? n - 1 : n));
   res.within_sd = within_sd(samples, res.mean, res.sd);
 
+  if (samples.size() & 1) {
+    res.median = samples[samples.size() / 2];
+  } else {
+    auto half = samples.size() / 2;
+    res.median = (samples[half - 1] + samples[half]) / 2;
+  }
+
+  res.p95 =
+    samples[static_cast<size_t>(static_cast<double>(samples.size()) * 0.95)];
+  res.p99 =
+    samples[static_cast<size_t>(static_cast<double>(samples.size()) * 0.99)];
+
   return res;
 }
 } // namespace
@@ -1861,6 +1889,11 @@ process_time_stats(const std::vector<std::unique_ptr<Worker>> &workers) {
           .count());
     }
   }
+
+  std::ranges::sort(request_times);
+  std::ranges::sort(connect_times);
+  std::ranges::sort(ttfb_times);
+  std::ranges::sort(rps_values);
 
   return {compute_time_stat(request_times, request_times_sampling),
           compute_time_stat(connect_times, client_times_sampling),
@@ -3371,29 +3404,39 @@ traffic: )" << util::utos_funit(as_unsigned(stats.bytes_total))
   }
 #endif // defined(ENABLE_HTTP3)
   std::cout
-    << R"(                     min         max         mean         sd        +/- sd
+    << R"(                     min         max         median     p95        p99        mean         sd        +/- sd
 time for request: )"
     << std::setw(10) << util::format_duration(ts.request.min) << "  "
     << std::setw(10) << util::format_duration(ts.request.max) << "  "
+    << std::setw(10) << util::format_duration(ts.request.median) << " "
+    << std::setw(10) << util::format_duration(ts.request.p95) << " "
+    << std::setw(10) << util::format_duration(ts.request.p99) << " "
     << std::setw(10) << util::format_duration(ts.request.mean) << "  "
     << std::setw(10) << util::format_duration(ts.request.sd) << std::setw(9)
     << util::dtos(ts.request.within_sd) << "%"
     << "\ntime for connect: " << std::setw(10)
     << util::format_duration(ts.connect.min) << "  " << std::setw(10)
     << util::format_duration(ts.connect.max) << "  " << std::setw(10)
+    << util::format_duration(ts.connect.median) << " " << std::setw(10)
+    << util::format_duration(ts.connect.p95) << " " << std::setw(10)
+    << util::format_duration(ts.connect.p99) << " " << std::setw(10)
     << util::format_duration(ts.connect.mean) << "  " << std::setw(10)
     << util::format_duration(ts.connect.sd) << std::setw(9)
     << util::dtos(ts.connect.within_sd) << "%"
     << "\ntime to 1st byte: " << std::setw(10)
     << util::format_duration(ts.ttfb.min) << "  " << std::setw(10)
     << util::format_duration(ts.ttfb.max) << "  " << std::setw(10)
+    << util::format_duration(ts.ttfb.median) << " " << std::setw(10)
+    << util::format_duration(ts.ttfb.p95) << " " << std::setw(10)
+    << util::format_duration(ts.ttfb.p99) << " " << std::setw(10)
     << util::format_duration(ts.ttfb.mean) << "  " << std::setw(10)
     << util::format_duration(ts.ttfb.sd) << std::setw(9)
     << util::dtos(ts.ttfb.within_sd) << "%"
     << "\nreq/s           : " << std::setw(10) << ts.rps.min << "  "
-    << std::setw(10) << ts.rps.max << "  " << std::setw(10) << ts.rps.mean
-    << "  " << std::setw(10) << ts.rps.sd << std::setw(9)
-    << util::dtos(ts.rps.within_sd) << "%" << std::endl;
+    << std::setw(10) << ts.rps.max << "  " << std::setw(10) << ts.rps.median
+    << " " << std::setw(10) << ts.rps.p95 << " " << std::setw(10) << ts.rps.p99
+    << " " << std::setw(10) << ts.rps.mean << "  " << std::setw(10) << ts.rps.sd
+    << std::setw(9) << util::dtos(ts.rps.within_sd) << "%" << std::endl;
 
   SSL_CTX_free(ssl_ctx);
 
