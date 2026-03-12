@@ -142,6 +142,10 @@ Config::Config()
     ktls(false) {}
 
 Config::~Config() {
+  if (tls_session) {
+    SSL_SESSION_free(tls_session);
+  }
+
   if (addrs) {
     if (base_uri_unix) {
       delete addrs;
@@ -591,6 +595,14 @@ int Client::make_socket(addrinfo *addr) {
     if (config.scheme == "https") {
       if (!ssl) {
         ssl = SSL_new(worker->ssl_ctx);
+
+        if (config.tls_session && !SSL_set_session(ssl, config.tls_session)) {
+          std::cerr << "Could not set TLS session" << std::endl;
+        }
+
+        if (!config.tls_session_file.empty()) {
+          SSL_set_ex_data(ssl, 1, worker);
+        }
       }
 
       SSL_set_connect_state(ssl);
@@ -853,6 +865,95 @@ void Client::process_request_failure() {
             << std::endl;
 }
 
+namespace {
+#if OPENSSL_3_0_0_API
+std::string pkey_get_group_name(EVP_PKEY *pkey) {
+  std::array<char, 64> name;
+  size_t nwrite;
+
+  if (!EVP_PKEY_get_group_name(pkey, name.data(), name.size(), &nwrite)) {
+    return ""s;
+  }
+
+  return name.data();
+}
+#else  // !OPENSSL_3_0_0_API
+std::string_view pkey_get_group_name(EVP_PKEY *pkey) {
+  auto nid = EVP_PKEY_id(pkey);
+  if (nid == EVP_PKEY_EC) {
+    auto ec = EVP_PKEY_get0_EC_KEY(pkey);
+
+    nid = EC_GROUP_get_curve_name(EC_KEY_get0_group(ec));
+  }
+
+  auto cname = EC_curve_nid2nist(nid);
+  if (cname) {
+    return cname;
+  }
+
+  cname = OBJ_nid2sn(nid);
+  if (cname) {
+    return cname;
+  }
+
+  return ""sv;
+}
+#endif // !OPENSSL_3_0_0_API
+} // namespace
+
+namespace {
+std::string_view get_negotiated_group_name(SSL *ssl) {
+#if OPENSSL_3_5_0_API
+  auto name = SSL_get0_group_name(ssl);
+  if (!name) {
+    return ""sv;
+  }
+
+  return name;
+#elif OPENSSL_3_0_0_API
+  auto name =
+    SSL_group_to_name(ssl, static_cast<int>(SSL_get_negotiated_group(ssl)));
+  if (!name) {
+    return ""sv;
+  }
+
+  return name;
+#elif defined(NGHTTP2_OPENSSL_IS_BORINGSSL)
+  auto name = SSL_get_group_name(SSL_get_group_id(ssl));
+  if (!name) {
+    return ""sv;
+  }
+
+  return name;
+#elif defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
+  auto name = wolfSSL_get_curve_name(ssl);
+  if (!name) {
+    return ""sv;
+  }
+
+  return name;
+#elif defined(NGHTTP2_OPENSSL_IS_LIBRESSL)
+  return ""sv;
+#else  // !OPENSSL_3_5_0_API && !OPENSSL_3_0_0_API &&
+       // !defined(NGHTTP2_OPENSSL_IS_BORINGSSL) &&
+       // !defined(NGHTTP2_OPENSSL_IS_WOLFSSL) &&
+       // !defined(NGHTTP2_OPENSSL_IS_LIBRESSL)
+  EVP_PKEY *pkey;
+
+  if (!SSL_get_tmp_key(ssl, &pkey)) {
+    return ""sv;
+  }
+
+  auto key_del = defer([pkey] { EVP_PKEY_free(pkey); });
+
+  return pkey_get_group_name(pkey);
+#endif // !OPENSSL_3_5_0_API && !OPENSSL_3_0_0_API &&
+       // !defined(NGHTTP2_OPENSSL_IS_BORINGSSL) &&
+       // !defined(NGHTTP2_OPENSSL_IS_WOLFSSL) &&
+       // !defined(NGHTTP2_OPENSSL_IS_LIBRESSL)
+}
+} // namespace
+
 #ifndef NGHTTP2_OPENSSL_IS_BORINGSSL
 namespace {
 void print_server_tmp_key(SSL *ssl) {
@@ -875,28 +976,12 @@ void print_server_tmp_key(SSL *ssl) {
     std::cout << "DH " << EVP_PKEY_bits(key) << " bits" << std::endl;
     break;
   case EVP_PKEY_EC: {
-#  if OPENSSL_3_0_0_API
-    std::array<char, 64> curve_name;
-    const char *cname;
-    if (!EVP_PKEY_get_utf8_string_param(key, "group", curve_name.data(),
-                                        curve_name.size(), nullptr)) {
-      cname = "<unknown>";
-    } else {
-      cname = curve_name.data();
+    auto group = pkey_get_group_name(key);
+    if (group.empty()) {
+      group = "<unknown>"sv;
     }
-#  else  // !OPENSSL_3_0_0_API
-    auto ec = EVP_PKEY_get0_EC_KEY(key);
-    auto nid = EC_GROUP_get_curve_name(EC_KEY_get0_group(ec));
-    auto cname = EC_curve_nid2nist(nid);
-    if (!cname) {
-      cname = OBJ_nid2sn(nid);
-      if (!cname) {
-        cname = "<unknown>";
-      }
-    }
-#  endif // !OPENSSL_3_0_0_API
 
-    std::cout << "ECDH " << cname << " " << EVP_PKEY_bits(key) << " bits"
+    std::cout << "ECDH " << group << " " << EVP_PKEY_bits(key) << " bits"
               << std::endl;
     break;
   }
@@ -909,6 +994,73 @@ void print_server_tmp_key(SSL *ssl) {
 } // namespace
 #endif // !defined(NGHTTP2_OPENSSL_IS_BORINGSSL)
 
+namespace {
+void print_server_cert(SSL *ssl) {
+#if OPENSSL_3_0_0_API
+  auto cert = SSL_get0_peer_certificate(ssl);
+#else  // !OPENSSL_3_0_0_API
+  auto cert = SSL_get_peer_certificate(ssl);
+#endif // !OPENSSL_3_0_0_API
+  if (!cert) {
+    return;
+  }
+
+#if !OPENSSL_3_0_0_API
+  auto cert_d = defer([cert] { X509_free(cert); });
+#endif // !OPENSSL_3_0_0_API
+
+  auto pkey = X509_get0_pubkey(cert);
+  if (!pkey) {
+    return;
+  }
+
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+  auto pkey_d = defer([pkey] {
+    // X509_get0_pubkey is mapped to wolfSSL_X509_get_pubkey, which
+    // increases the reference count despite the name "get0" suggests.
+    EVP_PKEY_free(pkey);
+  });
+#endif // defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
+
+  std::cout << "Certificate: ";
+
+  switch (EVP_PKEY_id(pkey)) {
+  case EVP_PKEY_RSA:
+    std::cout << "RSA ";
+    break;
+  case EVP_PKEY_EC:
+    std::cout << "ECDSA " << pkey_get_group_name(pkey) << " ";
+    break;
+#ifdef NGHTTP2_GENUINE_OPENSSL
+  case EVP_PKEY_ED448:
+    std::cout << "ED448 ";
+    break;
+  case EVP_PKEY_ED25519:
+    std::cout << "ED25519 ";
+    break;
+#endif // defined(NGHTTP2_GENUINE_OPENSSL)
+  default:
+#if OPENSSL_3_0_0_API
+    if (auto name = EVP_PKEY_get0_type_name(pkey); name) {
+      std::cout << name << " ";
+      break;
+    }
+#endif // OPENSSL_3_0_0_API
+
+    std::cout << "<unknown> ";
+  }
+
+  std::cout << EVP_PKEY_bits(pkey) << " bits" << std::endl;
+}
+} // namespace
+
+namespace {
+void print_negotiated_group(SSL *ssl) {
+  std::cout << "Negotiated Group: " << get_negotiated_group_name(ssl)
+            << std::endl;
+}
+} // namespace
+
 void Client::report_tls_info() {
   if (worker->id == 0 && !worker->tls_info_report_done) {
     worker->tls_info_report_done = true;
@@ -918,6 +1070,12 @@ void Client::report_tls_info() {
 #ifndef NGHTTP2_OPENSSL_IS_BORINGSSL
     print_server_tmp_key(ssl);
 #endif // !defined(NGHTTP2_OPENSSL_IS_BORINGSSL)
+
+    print_server_cert(ssl);
+    print_negotiated_group(ssl);
+
+    std::cout << "Resumption: " << (SSL_session_reused(ssl) ? "yes"sv : "no"sv)
+              << std::endl;
   }
 }
 
@@ -1652,6 +1810,10 @@ Worker::Worker(uint32_t id, SSL_CTX *ssl_ctx, size_t req_todo, size_t nclients,
 }
 
 Worker::~Worker() {
+  if (tls_session) {
+    SSL_SESSION_free(tls_session);
+  }
+
   ev_timer_stop(loop, &timeout_watcher);
   ev_timer_stop(loop, &duration_watcher);
   ev_timer_stop(loop, &warmup_watcher);
@@ -1762,6 +1924,68 @@ void Worker::report_rate_progress() {
   std::cout << "progress: " << nconns_made * 100 / nclients
             << "% of clients started" << std::endl;
 }
+
+void Worker::write_tls_session(const std::string &path) {
+  if (!tls_session) {
+    return;
+  }
+
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+  auto datalen = wolfSSL_i2d_SSL_SESSION(tls_session, nullptr);
+  if (datalen <= 0) {
+    std::cerr << "Could not write TLS session to " << path << std::endl;
+    return;
+  }
+
+  auto data =
+    std::make_unique_for_overwrite<uint8_t[]>(static_cast<size_t>(datalen));
+  auto p = data.get();
+
+  datalen = wolfSSL_i2d_SSL_SESSION(tls_session, &p);
+
+  assert(datalen > 0);
+
+  auto f = wolfSSL_BIO_new_file(path.c_str(), "w");
+  if (!f) {
+    std::cerr << "Could not write TLS session to " << path << std::endl;
+    return;
+  }
+
+  if (!wolfSSL_PEM_write_bio(f, "WOLFSSL SESSION PARAMETERS", "", data.get(),
+                             datalen)) {
+    std::cerr << "Could not write TLS session to " << path << std::endl;
+  }
+
+  wolfSSL_BIO_free(f);
+#else  // !defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
+  auto f = BIO_new_file(path.c_str(), "w");
+  if (!f) {
+    std::cerr << "Could not write TLS session to " << path << std::endl;
+    return;
+  }
+
+  if (!PEM_write_bio_SSL_SESSION(f, tls_session)) {
+    std::cerr << "Could not write TLS session to " << path << std::endl;
+  }
+
+  BIO_free(f);
+#endif // !defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
+}
+
+namespace {
+int new_session_cb(SSL *ssl, SSL_SESSION *session) {
+  auto worker = static_cast<Worker *>(SSL_get_ex_data(ssl, 1));
+
+  if (!worker || worker->id != 0 || worker->tls_session_store_done) {
+    return 0;
+  }
+
+  worker->tls_session = session;
+  worker->tls_session_store_done = true;
+
+  return 1;
+}
+} // namespace
 
 namespace {
 // Returns percentage of number of samples within mean +/- sd.
@@ -2341,6 +2565,66 @@ void output_sd_stat(std::ostream &o, const std::string_view &title,
 } // namespace
 
 namespace {
+std::optional<SSL_SESSION *> read_tls_session(const std::string &path) {
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+  auto f = wolfSSL_BIO_new_file(path.c_str(), "r");
+  if (!f) {
+    std::cerr << "Could not read TLS session file from " << path << std::endl;
+    return {};
+  }
+
+  auto f_del = defer([f] { wolfSSL_BIO_free(f); });
+
+  char *name, *header;
+  uint8_t *data;
+  long datalen;
+
+  if (!wolfSSL_PEM_read_bio(f, &name, &header, &data, &datalen)) {
+    std::cerr << "Could not read TLS session file from " << path << std::endl;
+    return {};
+  }
+
+  auto data_del = defer([name, header, data] {
+    wolfSSL_OPENSSL_free(name);
+    wolfSSL_OPENSSL_free(header);
+    wolfSSL_OPENSSL_free(data);
+  });
+
+  if ("WOLFSSL SESSION PARAMETERS"sv != name) {
+    std::cerr << "Could not read TLS session file from " << path << std::endl;
+    return {};
+  }
+
+  const uint8_t *pdata = data;
+
+  auto session = wolfSSL_d2i_SSL_SESSION(nullptr, &pdata, datalen);
+  if (!session) {
+    std::cerr << "Could not read TLS session file from " << path << std::endl;
+    return {};
+  }
+
+  return session;
+#else  // !defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
+  auto f = BIO_new_file(path.c_str(), "r");
+  if (!f) {
+    std::cerr << "Could not read TLS session file from " << path << std::endl;
+    return {};
+  }
+
+  auto session = PEM_read_bio_SSL_SESSION(f, nullptr, 0, nullptr);
+  BIO_free(f);
+
+  if (!session) {
+    std::cerr << "Could not read TLS session file from " << path << std::endl;
+    return {};
+  }
+
+  return session;
+#endif // !defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
+}
+} // namespace
+
+namespace {
 void print_version(std::ostream &out) {
   out << "h2load nghttp2/" NGHTTP2_VERSION << std::endl;
 }
@@ -2570,6 +2854,11 @@ Options:
               specified in URI.
   --histogram
               Plot histogram for performance statistics.
+  --tls-session-file=<PATH>
+              Read  TLS session  from <PATH>,  and set  it to  all TLS
+              connections to  perform the  session resumption.   It is
+              also used  to store  the new TLS  session.  At  most one
+              session is written to the given file.
   -v, --verbose
               Output debug information.
   --version   Display version information and exit.
@@ -2635,6 +2924,7 @@ int main(int argc, char **argv) {
       {"alpn-list", required_argument, &flag, 19},
       {"sni", required_argument, &flag, 20},
       {"histogram", no_argument, &flag, 21},
+      {"tls-session-file", required_argument, &flag, 22},
       {nullptr, 0, nullptr, 0}};
     int option_index = 0;
     auto c = getopt_long(argc, argv,
@@ -2991,6 +3281,10 @@ int main(int argc, char **argv) {
         // --histogram
         config.histogram = true;
         break;
+      case 22:
+        // --tls-session-file
+        config.tls_session_file = optarg;
+        break;
       }
       break;
     default:
@@ -3022,6 +3316,13 @@ int main(int argc, char **argv) {
 
   if (config.is_quic() && !window_bits_set_manually) {
     config.window_bits = 24;
+  }
+
+  if (!config.tls_session_file.empty()) {
+    auto session = read_tls_session(config.tls_session_file);
+    if (session) {
+      config.tls_session = *session;
+    }
   }
 
   std::vector<std::string> reqlines;
@@ -3297,6 +3598,12 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
+  if (!config.tls_session_file.empty()) {
+    SSL_CTX_set_session_cache_mode(ssl_ctx, SSL_SESS_CACHE_CLIENT |
+                                              SSL_SESS_CACHE_NO_INTERNAL);
+    SSL_CTX_sess_set_new_cb(ssl_ctx, new_session_cb);
+  }
+
 #if defined(NGHTTP2_OPENSSL_IS_BORINGSSL) && defined(HAVE_LIBBROTLI)
   if (!SSL_CTX_add_cert_compression_alg(
         ssl_ctx, nghttp2::tls::CERTIFICATE_COMPRESSION_ALGO_BROTLI,
@@ -3505,6 +3812,8 @@ int main(int argc, char **argv) {
   auto end = std::chrono::steady_clock::now();
   auto duration =
     std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+  workers[0]->write_tls_session(config.tls_session_file);
 
   Stats stats(0, 0);
   for (const auto &w : workers) {
