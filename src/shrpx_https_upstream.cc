@@ -396,12 +396,9 @@ int htp_hdrs_completecb(llhttp_t *htp) {
 
   if (host) {
     const auto &value = host->value;
-    // Not allow at least '"' or '\' in host.  They are illegal in
-    // authority component, also they cause headaches when we put them
-    // in quoted-string.
-    if (std::ranges::find_if(value, [](char c) {
-          return c == '"' || c == '\\';
-        }) != std::ranges::end(value)) {
+
+    if (!nghttp2_check_authority(
+          reinterpret_cast<const uint8_t *>(value.data()), value.size())) {
       return -1;
     }
   }
@@ -459,6 +456,14 @@ int htp_hdrs_completecb(llhttp_t *htp) {
 
   if (config->http.require_http_scheme &&
       !http::check_http_scheme(req.scheme, handler->get_ssl() != nullptr)) {
+    resp.http_status = 400;
+    return -1;
+  }
+
+  if ((req.scheme == "http" || req.scheme == "https") &&
+      (req.path.empty() || req.path[0] != '/') &&
+      // req.path gets empty string in case of "OPTIONS *".
+      (req.method != HTTP_OPTIONS || !req.path.empty())) {
     resp.http_status = 400;
     return -1;
   }
