@@ -223,36 +223,38 @@ struct GROStat {
   size_t num_pkts;
 };
 
-struct SDStat {
-  // min, max, median, p95, p99, mean and sd (standard deviation)
-  double min, max, median, p95, p99, mean, sd;
+template <typename T> struct SDStat {
+  // min, max, median, p95, and p99
+  T min, max, median, p95, p99;
+  // mean and sd (standard deviation)
+  double mean, sd;
   // percentage of samples inside mean -/+ sd
   double within_sd;
   // sampled data
-  std::vector<double> samples;
+  std::vector<T> samples;
 };
 
 struct SDStats {
   // time for request
-  SDStat request;
+  SDStat<double> request;
   // time for connect
-  SDStat connect;
+  SDStat<double> connect;
   // time to first byte (TTFB)
-  SDStat ttfb;
+  SDStat<double> ttfb;
   // request per second for each client
-  SDStat rps;
+  SDStat<double> rps;
   // minimum RTT (QUIC)
-  SDStat min_rtt;
+  SDStat<double> min_rtt;
   // smoothed RTT (QUIC)
-  SDStat smoothed_rtt;
+  SDStat<double> smoothed_rtt;
   // the number of packets sent (QUIC)
-  SDStat pkt_sent;
+  SDStat<uint64_t> pkt_sent;
   // the number of packets received (QUIC)
-  SDStat pkt_recv;
+  SDStat<uint64_t> pkt_recv;
   // the number of packets declared lost (QUIC)
-  SDStat pkt_lost;
+  SDStat<uint64_t> pkt_lost;
   // the number of packets received in a single recvmsg call (QUIC)
-  SDStat gro_pkts;
+  SDStat<uint64_t> gro_pkts;
 };
 
 struct Stats {
@@ -503,14 +505,14 @@ struct Client {
   int read_tls();
   int write_tls();
 
-  int on_read(const uint8_t *data, size_t len);
+  int on_read(std::span<const uint8_t> data);
   int on_write();
 
   int connection_made();
 
   void on_request(int64_t stream_id);
-  void on_header(int64_t stream_id, const uint8_t *name, size_t namelen,
-                 const uint8_t *value, size_t valuelen);
+  void on_header(int64_t stream_id, std::span<const uint8_t> name,
+                 std::span<const uint8_t> value);
   void on_status_code(int64_t stream_id, uint16_t status);
   // |success| == true means that the request/response was exchanged
   // |successfully, but it does not mean response carried successful
@@ -540,7 +542,7 @@ struct Client {
   int read_quic();
   int write_quic();
   ngtcp2_ssize write_quic_pkt(ngtcp2_path *path, ngtcp2_pkt_info *pi,
-                              uint8_t *dest, size_t destlen, ngtcp2_tstamp ts);
+                              std::span<uint8_t> dest, ngtcp2_tstamp ts);
   std::span<const uint8_t> write_udp(const sockaddr *addr, socklen_t addrlen,
                                      std::span<const uint8_t> data,
                                      size_t gso_size);
@@ -553,7 +555,7 @@ struct Client {
 
   int quic_handshake_completed();
   int quic_recv_stream_data(uint32_t flags, int64_t stream_id,
-                            const uint8_t *data, size_t datalen);
+                            std::span<const uint8_t> data);
   int quic_acked_stream_data_offset(int64_t stream_id, size_t datalen);
   int quic_stream_close(int64_t stream_id, uint64_t app_error_code);
   int quic_stream_reset(int64_t stream_id, uint64_t app_error_code);
@@ -561,8 +563,6 @@ struct Client {
   int quic_extend_max_local_streams();
   int quic_extend_max_stream_data(int64_t stream_id);
 
-  int quic_write_client_handshake(ngtcp2_encryption_level level,
-                                  const uint8_t *data, size_t datalen);
   int quic_pkt_timeout();
   void quic_restart_pkt_timer();
   void quic_write_qlog(const void *data, size_t datalen);
