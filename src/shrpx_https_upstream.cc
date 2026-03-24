@@ -556,8 +556,7 @@ int htp_bodycb(llhttp_t *htp, const char *data, size_t len) {
   int rv;
   auto upstream = static_cast<HttpsUpstream *>(htp->data);
   auto downstream = upstream->get_downstream();
-  rv = downstream->push_upload_data_chunk(
-    reinterpret_cast<const uint8_t *>(data), len);
+  rv = downstream->push_upload_data_chunk(as_uint8_span(std::span{data, len}));
   if (rv != 0) {
     // Ignore error if response has been completed.  We will end up in
     // htp_msg_completecb, and request will end gracefully.
@@ -630,7 +629,7 @@ int HttpsUpstream::on_read() {
   // downstream can be nullptr here, because it is initialized in the
   // callback chain called by llhttp_execute()
   if (downstream && downstream->get_upgraded()) {
-    auto rv = downstream->push_upload_data_chunk(rb->pos(), rb->rleft());
+    auto rv = downstream->push_upload_data_chunk(rb->peek());
 
     if (rv != 0) {
       return -1;
@@ -961,8 +960,8 @@ int HttpsUpstream::downstream_error(DownstreamConnection *dconn, int events) {
   return 0;
 }
 
-int HttpsUpstream::send_reply(Downstream *downstream, const uint8_t *body,
-                              size_t bodylen) {
+int HttpsUpstream::send_reply(Downstream *downstream,
+                              std::span<const uint8_t> body) {
   const auto &req = downstream->request();
   auto &resp = downstream->response();
   auto &balloc = downstream->get_block_allocator();
@@ -1027,9 +1026,9 @@ int HttpsUpstream::send_reply(Downstream *downstream, const uint8_t *body,
   output->append("\r\n"sv);
 
   if (req.method != HTTP_HEAD) {
-    output->append(body, bodylen);
+    output->append(body);
 
-    downstream->response_sent_body_length += bodylen;
+    downstream->response_sent_body_length += body.size();
   }
 
   downstream->set_response_state(DownstreamState::MSG_COMPLETE);
@@ -1333,20 +1332,20 @@ int HttpsUpstream::on_downstream_header_complete(Downstream *downstream) {
 }
 
 int HttpsUpstream::on_downstream_body(Downstream *downstream,
-                                      const uint8_t *data, size_t len,
+                                      std::span<const uint8_t> data,
                                       bool flush) {
-  if (len == 0) {
+  if (data.empty()) {
     return 0;
   }
   auto output = downstream->get_response_buf();
   if (downstream->get_chunked_response()) {
-    output->append(sizeof(len) * 2,
-                   std::bind_front(util::CompactHexFormatter{}, len));
+    output->append(sizeof(data.size()) * 2,
+                   std::bind_front(util::CompactHexFormatter{}, data.size()));
     output->append("\r\n"sv);
   }
-  output->append(data, len);
+  output->append(data);
 
-  downstream->response_sent_body_length += len;
+  downstream->response_sent_body_length += data.size();
 
   if (downstream->get_chunked_response()) {
     output->append("\r\n"sv);
@@ -1433,7 +1432,7 @@ int HttpsUpstream::redirect_to_https(Downstream *downstream) {
   resp.fs.add_header_token("connection"sv, "close"sv, false,
                            http2::HD_CONNECTION);
 
-  return send_reply(downstream, nullptr, 0);
+  return send_reply(downstream, {});
 }
 
 void HttpsUpstream::log_response_headers(DefaultMemchunks *buf) const {
