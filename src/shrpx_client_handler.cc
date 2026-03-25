@@ -133,7 +133,7 @@ int ClientHandler::read_clear() {
       return 0;
     }
 
-    auto nread = conn_.read_clear(rb_.last(), rb_.wleft());
+    auto nread = conn_.read_clear(rb_.wbuffer());
 
     if (nread == 0) {
       if (rb_.rleft() == 0) {
@@ -187,7 +187,7 @@ int ClientHandler::proxy_protocol_peek_clear() {
 
   assert(rb_.rleft() == 0);
 
-  auto nread = conn_.peek_clear(rb_.last(), rb_.wleft());
+  auto nread = conn_.peek_clear(rb_.wbuffer());
   if (nread < 0) {
     return -1;
   }
@@ -263,7 +263,7 @@ int ClientHandler::read_tls() {
       return 0;
     }
 
-    auto nread = conn_.read_tls(rb_.last(), rb_.wleft());
+    auto nread = conn_.read_tls(rb_.wbuffer());
 
     if (nread == 0) {
       if (rb_.rleft() == 0) {
@@ -282,26 +282,19 @@ int ClientHandler::read_tls() {
 }
 
 int ClientHandler::write_tls() {
-  struct iovec iov;
-
   ERR_clear_error();
 
-  if (on_write() != 0) {
-    return -1;
-  }
-
-  auto iovcnt = upstream_->response_riovec(&iov, 1);
-  if (iovcnt == 0) {
-    conn_.start_tls_write_idle();
-
-    conn_.wlimit.stopw();
-    ev_timer_stop(conn_.loop, &conn_.wt);
-
-    return 0;
-  }
-
   for (;;) {
-    auto nwrite = conn_.write_tls(iov.iov_base, iov.iov_len);
+    if (on_write() != 0) {
+      return -1;
+    }
+
+    auto data = upstream_->response_peek();
+    if (data.empty()) {
+      break;
+    }
+
+    auto nwrite = conn_.write_tls(data);
     if (nwrite < 0) {
       return -1;
     }
@@ -311,12 +304,14 @@ int ClientHandler::write_tls() {
     }
 
     upstream_->response_drain(as_unsigned(nwrite));
-
-    iovcnt = upstream_->response_riovec(&iov, 1);
-    if (iovcnt == 0) {
-      return 0;
-    }
   }
+
+  conn_.start_tls_write_idle();
+
+  conn_.wlimit.stopw();
+  ev_timer_stop(conn_.loop, &conn_.wt);
+
+  return 0;
 }
 
 #ifdef ENABLE_HTTP3
@@ -1293,7 +1288,7 @@ int ClientHandler::on_proxy_protocol_finish() {
 
   rb_.reset();
 
-  if (conn_.read_nolim_clear(rb_.pos(), len) < 0) {
+  if (conn_.read_nolim_clear({rb_.pos(), len}) < 0) {
     return -1;
   }
 

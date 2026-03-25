@@ -482,7 +482,7 @@ void Connection::start_tls_write_idle() {
   }
 }
 
-nghttp2_ssize Connection::write_tls(const void *data, size_t len) {
+nghttp2_ssize Connection::write_tls(std::span<const uint8_t> data) {
   // SSL_write requires the same arguments (buf pointer and its
   // length) on SSL_ERROR_WANT_READ or SSL_ERROR_WANT_WRITE.
   // get_write_limit() may return smaller length than previously
@@ -490,13 +490,13 @@ nghttp2_ssize Connection::write_tls(const void *data, size_t len) {
   // this, we keep last length passed to SSL_write to
   // tls.last_writelen if SSL_write indicated I/O blocking.
   if (tls.last_writelen == 0) {
-    len = std::min(len, wlimit.avail());
-    len = std::min(len, get_tls_write_limit());
-    if (len == 0) {
+    data = data.first(
+      std::ranges::min({data.size(), wlimit.avail(), get_tls_write_limit()}));
+    if (data.empty()) {
       return 0;
     }
   } else {
-    len = tls.last_writelen;
+    data = data.first(tls.last_writelen);
     tls.last_writelen = 0;
   }
 
@@ -507,17 +507,17 @@ nghttp2_ssize Connection::write_tls(const void *data, size_t len) {
 #ifdef NGHTTP2_GENUINE_OPENSSL
   int rv;
   if (SSL_is_init_finished(tls.ssl)) {
-    rv = SSL_write(tls.ssl, data, static_cast<int>(len));
+    rv = SSL_write(tls.ssl, data.data(), static_cast<int>(data.size()));
   } else {
     size_t nwrite;
-    rv = SSL_write_early_data(tls.ssl, data, len, &nwrite);
+    rv = SSL_write_early_data(tls.ssl, data.data(), data.size(), &nwrite);
     // Use the same semantics with SSL_write.
     if (rv == 1) {
       rv = static_cast<int>(nwrite);
     }
   }
 #else  // !defined(NGHTTP2_GENUINE_OPENSSL)
-  auto rv = SSL_write(tls.ssl, data, static_cast<int>(len));
+  auto rv = SSL_write(tls.ssl, data.data(), static_cast<int>(data.size()));
 #endif // !defined(NGHTTP2_GENUINE_OPENSSL)
 
   if (rv <= 0) {
@@ -529,7 +529,7 @@ nghttp2_ssize Connection::write_tls(const void *data, size_t len) {
       }
       return SHRPX_ERR_NETWORK;
     case SSL_ERROR_WANT_WRITE:
-      tls.last_writelen = len;
+      tls.last_writelen = data.size();
       wlimit.startw();
       ev_timer_again(loop, &wt);
 
@@ -559,13 +559,13 @@ nghttp2_ssize Connection::write_tls(const void *data, size_t len) {
   return rv;
 }
 
-nghttp2_ssize Connection::read_tls(void *data, size_t len) {
+nghttp2_ssize Connection::read_tls(std::span<uint8_t> data) {
   ERR_clear_error();
 
 #if defined(NGHTTP2_GENUINE_OPENSSL) ||                                        \
   defined(NGHTTP2_OPENSSL_IS_BORINGSSL) || defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
   if (tls.earlybuf.rleft()) {
-    return as_signed(tls.earlybuf.remove(data, len));
+    return as_signed(tls.earlybuf.remove(data));
   }
 #endif // defined(NGHTTP2_GENUINE_OPENSSL) ||
        // defined(NGHTTP2_OPENSSL_IS_BORINGSSL) ||
@@ -579,12 +579,12 @@ nghttp2_ssize Connection::read_tls(void *data, size_t len) {
   // to SSL_read to tls_last_readlen_ if SSL_read indicated I/O
   // blocking.
   if (tls.last_readlen == 0) {
-    len = std::min(len, rlimit.avail());
-    if (len == 0) {
+    data = data.first(std::min(data.size(), rlimit.avail()));
+    if (data.empty()) {
       return 0;
     }
   } else {
-    len = tls.last_readlen;
+    data = data.first(tls.last_readlen);
     tls.last_readlen = 0;
   }
 
@@ -592,12 +592,12 @@ nghttp2_ssize Connection::read_tls(void *data, size_t len) {
   if (!tls.early_data_finish) {
     // TLSv1.3 handshake is still going on.
     size_t nread;
-    auto rv = SSL_read_early_data(tls.ssl, data, len, &nread);
+    auto rv = SSL_read_early_data(tls.ssl, data.data(), data.size(), &nread);
     if (rv == SSL_READ_EARLY_DATA_ERROR) {
       auto err = SSL_get_error(tls.ssl, rv);
       switch (err) {
       case SSL_ERROR_WANT_READ:
-        tls.last_readlen = len;
+        tls.last_readlen = data.size();
         return 0;
       case SSL_ERROR_SSL:
         if (LOG_ENABLED(INFO)) {
@@ -636,12 +636,12 @@ nghttp2_ssize Connection::read_tls(void *data, size_t len) {
   if (!tls.early_data_finish) {
     // TLSv1.3 handshake is still going on.
     size_t nread = 0;
-    auto rv = SSL_read_early_data(tls.ssl, data, len, &nread);
+    auto rv = SSL_read_early_data(tls.ssl, data.data(), data.size(), &nread);
     if (rv < 0) {
       auto err = SSL_get_error(tls.ssl, rv);
       switch (err) {
       case SSL_ERROR_WANT_READ:
-        tls.last_readlen = len;
+        tls.last_readlen = data.size();
         return 0;
       case SSL_ERROR_SSL:
         if (LOG_ENABLED(INFO)) {
@@ -677,13 +677,13 @@ nghttp2_ssize Connection::read_tls(void *data, size_t len) {
 #endif // defined(NGHTTP2_OPENSSL_IS_WOLFSSL) &&
        // defined(WOLFSSL_EARLY_DATA)
 
-  auto rv = SSL_read(tls.ssl, data, static_cast<int>(len));
+  auto rv = SSL_read(tls.ssl, data.data(), static_cast<int>(data.size()));
 
   if (rv <= 0) {
     auto err = SSL_get_error(tls.ssl, rv);
     switch (err) {
     case SSL_ERROR_WANT_READ:
-      tls.last_readlen = len;
+      tls.last_readlen = data.size();
       return 0;
     case SSL_ERROR_WANT_WRITE:
       if (LOG_ENABLED(INFO)) {
@@ -710,14 +710,14 @@ nghttp2_ssize Connection::read_tls(void *data, size_t len) {
   return rv;
 }
 
-nghttp2_ssize Connection::write_clear(const void *data, size_t len) {
-  len = std::min(len, wlimit.avail());
-  if (len == 0) {
+nghttp2_ssize Connection::write_clear(std::span<const uint8_t> data) {
+  data = data.first(std::min(data.size(), wlimit.avail()));
+  if (data.empty()) {
     return 0;
   }
 
   ssize_t nwrite;
-  while ((nwrite = write(fd, data, len)) == -1 && errno == EINTR)
+  while ((nwrite = write(fd, data.data(), data.size())) == -1 && errno == EINTR)
     ;
   if (nwrite == -1) {
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -764,14 +764,14 @@ nghttp2_ssize Connection::writev_clear(struct iovec *iov, int iovcnt) {
   return nwrite;
 }
 
-nghttp2_ssize Connection::read_clear(void *data, size_t len) {
-  len = std::min(len, rlimit.avail());
-  if (len == 0) {
+nghttp2_ssize Connection::read_clear(std::span<uint8_t> data) {
+  data = data.first(std::min(data.size(), rlimit.avail()));
+  if (data.empty()) {
     return 0;
   }
 
   ssize_t nread;
-  while ((nread = read(fd, data, len)) == -1 && errno == EINTR)
+  while ((nread = read(fd, data.data(), data.size())) == -1 && errno == EINTR)
     ;
   if (nread == -1) {
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -789,9 +789,9 @@ nghttp2_ssize Connection::read_clear(void *data, size_t len) {
   return nread;
 }
 
-nghttp2_ssize Connection::read_nolim_clear(void *data, size_t len) {
+nghttp2_ssize Connection::read_nolim_clear(std::span<uint8_t> data) {
   ssize_t nread;
-  while ((nread = read(fd, data, len)) == -1 && errno == EINTR)
+  while ((nread = read(fd, data.data(), data.size())) == -1 && errno == EINTR)
     ;
   if (nread == -1) {
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -807,9 +807,10 @@ nghttp2_ssize Connection::read_nolim_clear(void *data, size_t len) {
   return nread;
 }
 
-nghttp2_ssize Connection::peek_clear(void *data, size_t len) {
+nghttp2_ssize Connection::peek_clear(std::span<uint8_t> data) {
   ssize_t nread;
-  while ((nread = recv(fd, data, len, MSG_PEEK)) == -1 && errno == EINTR)
+  while ((nread = recv(fd, data.data(), data.size(), MSG_PEEK)) == -1 &&
+         errno == EINTR)
     ;
   if (nread == -1) {
     if (errno == EAGAIN || errno == EWOULDBLOCK) {

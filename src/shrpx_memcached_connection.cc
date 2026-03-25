@@ -321,8 +321,7 @@ int MemcachedConnection::write_tls() {
       }
     }
 
-    auto nwrite =
-      conn_.write_tls(buf.data(), as_unsigned(p - std::ranges::begin(buf)));
+    auto nwrite = conn_.write_tls({std::ranges::begin(buf), p});
     if (nwrite < 0) {
       return -1;
     }
@@ -347,7 +346,7 @@ int MemcachedConnection::read_tls() {
   conn_.last_read = std::chrono::steady_clock::now();
 
   for (;;) {
-    auto nread = conn_.read_tls(recvbuf_.last, recvbuf_.wleft());
+    auto nread = conn_.read_tls(recvbuf_.wbuffer());
 
     if (nread == 0) {
       return 0;
@@ -403,7 +402,7 @@ int MemcachedConnection::read_clear() {
   conn_.last_read = std::chrono::steady_clock::now();
 
   for (;;) {
-    auto nread = conn_.read_clear(recvbuf_.last, recvbuf_.wleft());
+    auto nread = conn_.read_clear(recvbuf_.wbuffer());
 
     if (nread == 0) {
       return 0;

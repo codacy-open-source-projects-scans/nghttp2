@@ -239,8 +239,10 @@ int get_new_connection_id(ngtcp2_conn *conn, ngtcp2_cid *cid, uint8_t *token,
     return NGTCP2_ERR_CALLBACK_FAILURE;
   }
 
-  if (generate_quic_stateless_reset_token(token, *cid, qkm.secret.data(),
-                                          qkm.secret.size()) != 0) {
+  if (generate_quic_stateless_reset_token(
+        std::span<uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN>{
+          token, NGTCP2_STATELESS_RESET_TOKENLEN},
+        *cid, qkm.secret) != 0) {
     return NGTCP2_ERR_CALLBACK_FAILURE;
   }
 
@@ -712,7 +714,7 @@ int Http3Upstream::init(const UpstreamAddr *faddr, const Address &remote_addr,
   params.original_dcid_present = 1;
 
   rv = generate_quic_stateless_reset_token(
-    params.stateless_reset_token, scid, qkm.secret.data(), qkm.secret.size());
+    std::span{params.stateless_reset_token}, scid, qkm.secret);
   if (rv != 0) {
     ULOG(ERROR, this) << "generate_quic_stateless_reset_token failed";
     return -1;
@@ -1704,6 +1706,8 @@ int Http3Upstream::initiate_push(Downstream *downstream, std::string_view uri) {
 int Http3Upstream::response_riovec(struct iovec *iov, int iovcnt) const {
   return 0;
 }
+
+std::span<const uint8_t> Http3Upstream::response_peek() const { return {}; }
 
 void Http3Upstream::response_drain(size_t n) {}
 

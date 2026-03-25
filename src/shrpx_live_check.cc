@@ -440,12 +440,13 @@ int LiveCheck::tls_handshake() {
 int LiveCheck::read_tls() {
   conn_.last_read = std::chrono::steady_clock::now();
 
-  std::array<uint8_t, 4_k> buf;
+  std::array<uint8_t, 4_k> rawbuf;
+  auto buf = std::span{rawbuf};
 
   ERR_clear_error();
 
   for (;;) {
-    auto nread = conn_.read_tls(buf.data(), buf.size());
+    auto nread = conn_.read_tls(buf);
 
     if (nread == 0) {
       return 0;
@@ -455,7 +456,7 @@ int LiveCheck::read_tls() {
       return static_cast<int>(nread);
     }
 
-    if (on_read(buf.data(), as_unsigned(nread)) != 0) {
+    if (on_read(buf.first(as_unsigned(nread))) != 0) {
       return -1;
     }
   }
@@ -466,16 +467,11 @@ int LiveCheck::write_tls() {
 
   ERR_clear_error();
 
-  struct iovec iov;
+  auto data = wb_.peek();
 
   for (;;) {
-    if (wb_.rleft() > 0) {
-      auto iovcnt = wb_.riovec(&iov, 1);
-      if (iovcnt != 1) {
-        assert(0);
-        return -1;
-      }
-      auto nwrite = conn_.write_tls(iov.iov_base, iov.iov_len);
+    if (!data.empty()) {
+      auto nwrite = conn_.write_tls(data);
 
       if (nwrite == 0) {
         return 0;
@@ -486,6 +482,7 @@ int LiveCheck::write_tls() {
       }
 
       wb_.drain(as_unsigned(nwrite));
+      data = wb_.peek();
 
       continue;
     }
@@ -494,7 +491,8 @@ int LiveCheck::write_tls() {
       return -1;
     }
 
-    if (wb_.rleft() == 0) {
+    data = wb_.peek();
+    if (data.empty()) {
       conn_.start_tls_write_idle();
       break;
     }
@@ -513,10 +511,11 @@ int LiveCheck::write_tls() {
 int LiveCheck::read_clear() {
   conn_.last_read = std::chrono::steady_clock::now();
 
-  std::array<uint8_t, 4_k> buf;
+  std::array<uint8_t, 4_k> rawbuf;
+  auto buf = std::span{rawbuf};
 
   for (;;) {
-    auto nread = conn_.read_clear(buf.data(), buf.size());
+    auto nread = conn_.read_clear(buf);
 
     if (nread == 0) {
       return 0;
@@ -526,7 +525,7 @@ int LiveCheck::read_clear() {
       return static_cast<int>(nread);
     }
 
-    if (on_read(buf.data(), as_unsigned(nread)) != 0) {
+    if (on_read(buf.first(as_unsigned(nread))) != 0) {
       return -1;
     }
   }
@@ -535,16 +534,11 @@ int LiveCheck::read_clear() {
 int LiveCheck::write_clear() {
   conn_.last_read = std::chrono::steady_clock::now();
 
-  struct iovec iov;
+  auto data = wb_.peek();
 
   for (;;) {
-    if (wb_.rleft() > 0) {
-      auto iovcnt = wb_.riovec(&iov, 1);
-      if (iovcnt != 1) {
-        assert(0);
-        return -1;
-      }
-      auto nwrite = conn_.write_clear(iov.iov_base, iov.iov_len);
+    if (!data.empty()) {
+      auto nwrite = conn_.write_clear(data);
 
       if (nwrite == 0) {
         return 0;
@@ -555,6 +549,7 @@ int LiveCheck::write_clear() {
       }
 
       wb_.drain(as_unsigned(nwrite));
+      data = wb_.peek();
 
       continue;
     }
@@ -563,7 +558,8 @@ int LiveCheck::write_clear() {
       return -1;
     }
 
-    if (wb_.rleft() == 0) {
+    data = wb_.peek();
+    if (data.empty()) {
       break;
     }
   }
@@ -578,8 +574,8 @@ int LiveCheck::write_clear() {
   return 0;
 }
 
-int LiveCheck::on_read(const uint8_t *data, size_t len) {
-  auto rv = nghttp2_session_mem_recv2(session_, data, len);
+int LiveCheck::on_read(std::span<const uint8_t> data) {
+  auto rv = nghttp2_session_mem_recv2(session_, data.data(), data.size());
   if (rv < 0) {
     LOG(ERROR) << "nghttp2_session_mem_recv2() returned error: "
                << nghttp2_strerror(static_cast<int>(rv));
