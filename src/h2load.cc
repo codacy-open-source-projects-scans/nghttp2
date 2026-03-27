@@ -1471,21 +1471,23 @@ int Client::read_clear() {
 }
 
 int Client::write_clear() {
-  std::array<struct iovec, 2> iov;
+  std::array<struct iovec, 2> iovbuf;
 
   for (;;) {
     if (on_write() != 0) {
       return -1;
     }
 
-    auto iovcnt = wb.riovec(iov.data(), iov.size());
+    auto iov = wb.riovec(iovbuf);
 
-    if (iovcnt == 0) {
+    if (iov.empty()) {
       break;
     }
 
     ssize_t nwrite;
-    while ((nwrite = writev(fd, iov.data(), iovcnt)) == -1 && errno == EINTR)
+    while ((nwrite = writev(fd, iov.data(), static_cast<int>(iov.size()))) ==
+             -1 &&
+           errno == EINTR)
       ;
 
     if (nwrite == -1) {
@@ -1593,20 +1595,18 @@ int Client::read_tls() {
 int Client::write_tls() {
   ERR_clear_error();
 
-  struct iovec iov;
-
   for (;;) {
     if (on_write() != 0) {
       return -1;
     }
 
-    auto iovcnt = wb.riovec(&iov, 1);
+    auto data = wb.peek();
 
-    if (iovcnt == 0) {
+    if (data.empty()) {
       break;
     }
 
-    auto rv = SSL_write(ssl, iov.iov_base, static_cast<int>(iov.iov_len));
+    auto rv = SSL_write(ssl, data.data(), static_cast<int>(data.size()));
 
     if (rv <= 0) {
       auto err = SSL_get_error(ssl, rv);
@@ -2924,6 +2924,8 @@ Options:
   --h1        Short        hand        for        --alpn-list=http/1.1
               --no-tls-proto=http/1.1,    which   effectively    force
               http/1.1 for both http and https URI.
+  --h3        Short hand for  --alpn-list=h3, which effectively forces
+              HTTP/3.
   --header-table-size=<SIZE>
               Specify decoder header table size.
               Default: )"
@@ -3045,6 +3047,7 @@ int main(int argc, char **argv) {
       {"histogram", no_argument, &flag, 21},
       {"tls-session-file", required_argument, &flag, 22},
       {"output-file", required_argument, &flag, 23},
+      {"h3", no_argument, &flag, 24},
       {nullptr, 0, nullptr, 0}};
     int option_index = 0;
     auto c = getopt_long(argc, argv,
@@ -3408,6 +3411,10 @@ int main(int argc, char **argv) {
       case 23:
         // --output-file
         config.output_file = optarg;
+        break;
+      case 24:
+        // --h3
+        config.alpn_list = util::parse_config_str_list("h3"sv);
         break;
       }
       break;
