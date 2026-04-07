@@ -51,9 +51,9 @@ void header_timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
   auto downstream = static_cast<Downstream *>(w->data);
   auto upstream = downstream->get_upstream();
 
-  if (LOG_ENABLED(INFO)) {
-    DLOG(INFO, downstream) << "request header timeout stream_id="
-                           << downstream->get_stream_id();
+  if (log_enabled(INFO)) {
+    Log{INFO, downstream} << "request header timeout stream_id="
+                          << downstream->get_stream_id();
   }
 
   downstream->disable_upstream_rtimer();
@@ -70,9 +70,9 @@ void upstream_timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
 
   auto which = revents == EV_READ ? "read" : "write";
 
-  if (LOG_ENABLED(INFO)) {
-    DLOG(INFO, downstream) << "upstream timeout stream_id="
-                           << downstream->get_stream_id() << " event=" << which;
+  if (log_enabled(INFO)) {
+    Log{INFO, downstream} << "upstream timeout stream_id="
+                          << downstream->get_stream_id() << " event=" << which;
   }
 
   downstream->disable_upstream_rtimer();
@@ -100,10 +100,10 @@ void downstream_timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
 
   auto which = revents == EV_READ ? "read" : "write";
 
-  if (LOG_ENABLED(INFO)) {
-    DLOG(INFO, downstream) << "downstream timeout stream_id="
-                           << downstream->get_downstream_stream_id()
-                           << " event=" << which;
+  if (log_enabled(INFO)) {
+    Log{INFO, downstream} << "downstream timeout stream_id="
+                          << downstream->get_downstream_stream_id()
+                          << " event=" << which;
   }
 
   downstream->disable_downstream_rtimer();
@@ -194,8 +194,8 @@ Downstream::Downstream(Upstream *upstream, MemchunkPool *mcpool,
 }
 
 Downstream::~Downstream() {
-  if (LOG_ENABLED(INFO)) {
-    DLOG(INFO, this) << "Deleting";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Deleting";
   }
 
   // check nullptr for unittest
@@ -241,8 +241,8 @@ Downstream::~Downstream() {
     nghttp2_rcbuf_decref(rcbuf);
   }
 
-  if (LOG_ENABLED(INFO)) {
-    DLOG(INFO, this) << "Deleted";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Deleted";
   }
 }
 
@@ -676,7 +676,7 @@ DefaultMemchunks *Downstream::get_request_buf() { return &request_buf_; }
 // Downstream. Otherwise, the program will crash.
 int Downstream::push_request_headers() {
   if (!dconn_) {
-    DLOG(INFO, this) << "dconn_ is NULL";
+    Log{INFO, this} << "dconn_ is NULL";
     return -1;
   }
   return dconn_->push_request_headers();
@@ -694,7 +694,7 @@ int Downstream::push_upload_data_chunk(std::span<const uint8_t> data) {
   // Assumes that request headers have already been pushed to output
   // buffer using push_request_headers().
   if (!dconn_) {
-    DLOG(INFO, this) << "dconn_ is NULL";
+    Log{INFO, this} << "dconn_ is NULL";
     return -1;
   }
   if (dconn_->push_upload_data_chunk(data) != 0) {
@@ -712,7 +712,7 @@ int Downstream::end_upload_data() {
     return 0;
   }
   if (!dconn_) {
-    DLOG(INFO, this) << "dconn_ is NULL";
+    Log{INFO, this} << "dconn_ is NULL";
     return -1;
   }
   return dconn_->end_upload_data();
@@ -752,7 +752,7 @@ void Downstream::set_chunked_response(bool f) { chunked_response_ = f; }
 
 int Downstream::on_read() {
   if (!dconn_) {
-    DLOG(INFO, this) << "dconn_ is NULL";
+    Log{INFO, this} << "dconn_ is NULL";
     return -1;
   }
   return dconn_->on_read();
@@ -786,10 +786,10 @@ bool Downstream::validate_request_recv_body_length() const {
   }
 
   if (req_.fs.content_length != req_.recv_body_length) {
-    if (LOG_ENABLED(INFO)) {
-      DLOG(INFO, this) << "request invalid bodylen: content-length="
-                       << req_.fs.content_length
-                       << ", received=" << req_.recv_body_length;
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "request invalid bodylen: content-length="
+                      << req_.fs.content_length
+                      << ", received=" << req_.recv_body_length;
     }
     return false;
   }
@@ -803,10 +803,10 @@ bool Downstream::validate_response_recv_body_length() const {
   }
 
   if (resp_.fs.content_length != resp_.recv_body_length) {
-    if (LOG_ENABLED(INFO)) {
-      DLOG(INFO, this) << "response invalid bodylen: content-length="
-                       << resp_.fs.content_length
-                       << ", received=" << resp_.recv_body_length;
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "response invalid bodylen: content-length="
+                      << resp_.fs.content_length
+                      << ", received=" << resp_.recv_body_length;
     }
     return false;
   }

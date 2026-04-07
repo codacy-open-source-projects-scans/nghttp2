@@ -174,16 +174,16 @@ int quic_send_packet(const UpstreamAddr *faddr, const sockaddr *remote_sa,
   } while (nwrite == -1 && errno == EINTR);
 
   if (nwrite == -1) {
-    if (LOG_ENABLED(INFO)) {
+    if (log_enabled(INFO)) {
       auto error = errno;
-      LOG(INFO) << "sendmsg failed: errno=" << error;
+      Log{INFO} << "sendmsg failed: errno=" << error;
     }
 
     return -errno;
   }
 
-  if (LOG_ENABLED(INFO)) {
-    LOG(INFO) << "QUIC sent packet: local="
+  if (log_enabled(INFO)) {
+    Log{INFO} << "QUIC sent packet: local="
               << util::to_numeric_addr(local_sa, local_salen)
               << " remote=" << util::to_numeric_addr(remote_sa, remote_salen)
               << " ecn=" << log::hex << pi.ecn << log::dec << " " << nwrite

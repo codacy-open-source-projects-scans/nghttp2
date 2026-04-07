@@ -69,8 +69,8 @@ void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
   auto conn = static_cast<Connection *>(w->data);
   auto handler = static_cast<ClientHandler *>(conn->data);
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, handler) << "Time out";
+  if (log_enabled(INFO)) {
+    Log{INFO, handler} << "Time out";
   }
 
   delete handler;
@@ -81,8 +81,8 @@ namespace {
 void shutdowncb(struct ev_loop *loop, ev_timer *w, int revents) {
   auto handler = static_cast<ClientHandler *>(w->data);
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, handler) << "Close connection due to TLS renegotiation";
+  if (log_enabled(INFO)) {
+    Log{INFO, handler} << "Close connection due to TLS renegotiation";
   }
 
   delete handler;
@@ -195,9 +195,8 @@ int ClientHandler::proxy_protocol_peek_clear() {
     return 0;
   }
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "PROXY-protocol: Peek " << nread
-                     << " bytes from socket";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "PROXY-protocol: Peek " << nread << " bytes from socket";
   }
 
   rb_.write(as_unsigned(nread));
@@ -226,8 +225,8 @@ int ClientHandler::tls_handshake() {
     return -1;
   }
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "SSL/TLS handshake completed";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "SSL/TLS handshake completed";
   }
 
   if (validate_next_proto() != 0) {
@@ -324,9 +323,9 @@ int ClientHandler::read_quic(const UpstreamAddr *faddr,
   auto &rlimit = conn_.rlimit;
 
   if (rlimit.avail() < data.size()) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "Dropped QUIC packet of " << data.size()
-                       << " bytes due to rate limiting";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "Dropped QUIC packet of " << data.size()
+                      << " bytes due to rate limiting";
     }
 
     return 0;
@@ -370,8 +369,8 @@ int ClientHandler::upstream_http2_connhd_read() {
   if (memcmp(&NGHTTP2_CLIENT_MAGIC[NGHTTP2_CLIENT_MAGIC_LEN - left_connhd_len_],
              rb_.pos(), nread) != 0) {
     // There is no downgrade path here. Just drop the connection.
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "invalid client connection header";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "invalid client connection header";
     }
 
     return -1;
@@ -398,9 +397,9 @@ int ClientHandler::upstream_http1_connhd_read() {
   auto nread = std::min(left_connhd_len_, rb_.rleft());
   if (memcmp(&NGHTTP2_CLIENT_MAGIC[NGHTTP2_CLIENT_MAGIC_LEN - left_connhd_len_],
              rb_.pos(), nread) != 0) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "This is HTTP/1.1 connection, "
-                       << "but may be upgraded to HTTP/2 later.";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "This is HTTP/1.1 connection, "
+                      << "but may be upgraded to HTTP/2 later.";
     }
 
     // Reset header length for later HTTP/2 upgrade
@@ -420,8 +419,8 @@ int ClientHandler::upstream_http1_connhd_read() {
   conn_.rlimit.startw();
 
   if (left_connhd_len_ == 0) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "direct HTTP/2 connection";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "direct HTTP/2 connection";
     }
 
     direct_http2_upgrade();
@@ -566,8 +565,8 @@ void ClientHandler::setup_http3_upstream(
 #endif // defined(ENABLE_HTTP3)
 
 ClientHandler::~ClientHandler() {
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "Deleting";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Deleting";
   }
 
   if (upstream_) {
@@ -590,8 +589,8 @@ ClientHandler::~ClientHandler() {
     ev_break(conn_.loop);
   }
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "Deleted";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Deleted";
   }
 }
 
@@ -631,20 +630,20 @@ int ClientHandler::validate_next_proto() {
   if (next_proto) {
     proto = as_string_view(next_proto, next_proto_len);
 
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "The negotiated next protocol: " << proto;
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "The negotiated next protocol: " << proto;
     }
   } else {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "No protocol negotiated. Fallback to HTTP/1.1";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "No protocol negotiated. Fallback to HTTP/1.1";
     }
 
     proto = "http/1.1"sv;
   }
 
   if (!tls::in_proto_list(get_config()->tls.alpn_list, proto)) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "The negotiated protocol is not supported: " << proto;
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "The negotiated protocol is not supported: " << proto;
     }
     return -1;
   }
@@ -680,8 +679,8 @@ int ClientHandler::validate_next_proto() {
 
     return 0;
   }
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "The negotiated protocol is not supported";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "The negotiated protocol is not supported";
   }
   return -1;
 }
@@ -721,9 +720,9 @@ void ClientHandler::pool_downstream_connection(
 
   auto &group = dconn->get_downstream_addr_group();
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "Pooling downstream connection DCONN:" << dconn.get()
-                     << " in group " << group;
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Pooling downstream connection DCONN:" << dconn.get()
+                    << " in group " << group;
   }
 
   auto addr = dconn->get_addr();
@@ -754,19 +753,18 @@ Http2Session *ClientHandler::get_http2_session(
   const std::shared_ptr<DownstreamAddrGroup> &group, DownstreamAddr *addr) {
   auto &shared_addr = group->shared_addr;
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "Selected DownstreamAddr=" << addr
-                     << ", index=" << (addr - shared_addr->addrs.data());
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Selected DownstreamAddr=" << addr
+                    << ", index=" << (addr - shared_addr->addrs.data());
   }
 
   for (auto session = addr->http2_extra_freelist.head; session;) {
     auto next = session->dlnext;
 
     if (session->max_concurrency_reached(0)) {
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this)
-          << "Maximum streams have been reached for Http2Session(" << session
-          << ").  Skip it";
+      if (log_enabled(INFO)) {
+        Log{INFO, this} << "Maximum streams have been reached for Http2Session("
+                        << session << ").  Skip it";
       }
 
       session->remove_from_freelist();
@@ -775,15 +773,15 @@ Http2Session *ClientHandler::get_http2_session(
       continue;
     }
 
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "Use Http2Session " << session
-                       << " from http2_extra_freelist";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "Use Http2Session " << session
+                      << " from http2_extra_freelist";
     }
 
     if (session->max_concurrency_reached(1)) {
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this) << "Maximum streams are reached for Http2Session("
-                         << session << ").";
+      if (log_enabled(INFO)) {
+        Log{INFO, this} << "Maximum streams are reached for Http2Session("
+                        << session << ").";
       }
 
       session->remove_from_freelist();
@@ -794,8 +792,8 @@ Http2Session *ClientHandler::get_http2_session(
   auto session = new Http2Session(conn_.loop, worker_->get_cl_ssl_ctx(),
                                   worker_, group, addr);
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "Create new Http2Session " << session;
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Create new Http2Session " << session;
   }
 
   session->add_to_extra_freelist();
@@ -923,7 +921,7 @@ DownstreamAddr *ClientHandler::get_downstream_addr(int &err,
 
   for (;;) {
     if (wgpq.empty()) {
-      CLOG(INFO, this) << "No working downstream address found";
+      Log{INFO, this} << "No working downstream address found";
       err = -1;
       return nullptr;
     }
@@ -1083,14 +1081,14 @@ ClientHandler::get_downstream_connection(int &err, Downstream *downstream) {
                                             catch_all, balloc);
   }
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "Downstream address group_idx: " << group_idx;
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Downstream address group_idx: " << group_idx;
   }
 
   if (groups[group_idx]->shared_addr->redirect_if_not_tls && !conn_.tls.ssl) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "Downstream address group " << group_idx
-                       << " requires frontend TLS connection.";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "Downstream address group " << group_idx
+                      << " requires frontend TLS connection.";
     }
     err = SHRPX_ERR_TLS_REQUIRED;
     return nullptr;
@@ -1117,16 +1115,16 @@ ClientHandler::get_downstream_connection(int &err, Downstream *downstream) {
     }
 
     if (worker_->get_connect_blocker()->blocked()) {
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this)
+      if (log_enabled(INFO)) {
+        Log{INFO, this}
           << "Worker wide backend connection was blocked temporarily";
       }
       return nullptr;
     }
 
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "Downstream connection pool is empty."
-                       << " Create new one";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "Downstream connection pool is empty."
+                      << " Create new one";
     }
 
     dconn = std::make_unique<HttpDownstreamConnection>(group, addr, conn_.loop,
@@ -1135,9 +1133,9 @@ ClientHandler::get_downstream_connection(int &err, Downstream *downstream) {
     return dconn;
   }
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "Downstream connection pool is empty."
-                     << " Create new one";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Downstream connection pool is empty."
+                    << " Create new one";
   }
 
   auto http2session = get_http2_session(group, addr);
@@ -1281,9 +1279,9 @@ int ClientHandler::on_proxy_protocol_finish() {
 
   assert(len);
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "PROXY-protocol: Draining " << len
-                     << " bytes from socket";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "PROXY-protocol: Draining " << len
+                    << " bytes from socket";
   }
 
   rb_.reset();
@@ -1311,16 +1309,16 @@ constexpr size_t PROXY_PROTO_V2_HDLEN =
 
 // http://www.haproxy.org/download/1.5/doc/proxy-protocol.txt
 int ClientHandler::proxy_protocol_read() {
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "PROXY-protocol: Started";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "PROXY-protocol: Started";
   }
 
   auto first = rb_.pos();
 
   if (rb_.rleft() >= PROXY_PROTO_V2_HDLEN &&
       (*(first + str_size(PROXY_PROTO_V2_SIG)) & 0xf0) == 0x20) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol: Detected v2 header signature";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol: Detected v2 header signature";
     }
     return proxy_protocol_v2_read();
   }
@@ -1338,8 +1336,8 @@ int ClientHandler::proxy_protocol_read() {
     rb_.pos(), bufend, std::ranges::begin(chrs), std::ranges::end(chrs));
 
   if (end == bufend || *end == '\0' || end == rb_.pos() || *(end - 1) != '\r') {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v1: No ending CR LF sequence found";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v1: No ending CR LF sequence found";
     }
     return -1;
   }
@@ -1349,15 +1347,15 @@ int ClientHandler::proxy_protocol_read() {
   static constexpr auto HEADER = "PROXY "sv;
 
   if (static_cast<size_t>(end - rb_.pos()) < HEADER.size()) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v1: PROXY version 1 ID not found";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v1: PROXY version 1 ID not found";
     }
     return -1;
   }
 
   if (HEADER != as_string_view(rb_.pos(), HEADER.size())) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v1: Bad PROXY protocol version 1 ID";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v1: Bad PROXY protocol version 1 ID";
     }
     return -1;
   }
@@ -1368,15 +1366,15 @@ int ClientHandler::proxy_protocol_read() {
 
   if (rb_.pos()[0] == 'T') {
     if (end - rb_.pos() < 5) {
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this) << "PROXY-protocol-v1: INET protocol family not found";
+      if (log_enabled(INFO)) {
+        Log{INFO, this} << "PROXY-protocol-v1: INET protocol family not found";
       }
       return -1;
     }
 
     if (rb_.pos()[1] != 'C' || rb_.pos()[2] != 'P') {
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this) << "PROXY-protocol-v1: Unknown INET protocol family";
+      if (log_enabled(INFO)) {
+        Log{INFO, this} << "PROXY-protocol-v1: Unknown INET protocol family";
       }
       return -1;
     }
@@ -1389,8 +1387,8 @@ int ClientHandler::proxy_protocol_read() {
       family = AF_INET6;
       break;
     default:
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this) << "PROXY-protocol-v1: Unknown INET protocol family";
+      if (log_enabled(INFO)) {
+        Log{INFO, this} << "PROXY-protocol-v1: Unknown INET protocol family";
       }
       return -1;
     }
@@ -1398,14 +1396,14 @@ int ClientHandler::proxy_protocol_read() {
     rb_.drain(5);
   } else {
     if (end - rb_.pos() < 7) {
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this) << "PROXY-protocol-v1: INET protocol family not found";
+      if (log_enabled(INFO)) {
+        Log{INFO, this} << "PROXY-protocol-v1: INET protocol family not found";
       }
       return -1;
     }
     if ("UNKNOWN"sv != as_string_view(rb_.pos(), 7)) {
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this) << "PROXY-protocol-v1: Unknown INET protocol family";
+      if (log_enabled(INFO)) {
+        Log{INFO, this} << "PROXY-protocol-v1: Unknown INET protocol family";
       }
       return -1;
     }
@@ -1418,16 +1416,16 @@ int ClientHandler::proxy_protocol_read() {
   // source address
   auto token_end = std::ranges::find(rb_.pos(), end, ' ');
   if (token_end == end) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v1: Source address not found";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v1: Source address not found";
     }
     return -1;
   }
 
   *token_end = '\0';
   if (!util::numeric_host(reinterpret_cast<const char *>(rb_.pos()), family)) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v1: Invalid source address";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v1: Invalid source address";
     }
     return -1;
   }
@@ -1440,16 +1438,16 @@ int ClientHandler::proxy_protocol_read() {
   // destination address
   token_end = std::ranges::find(rb_.pos(), end, ' ');
   if (token_end == end) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v1: Destination address not found";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v1: Destination address not found";
     }
     return -1;
   }
 
   *token_end = '\0';
   if (!util::numeric_host(reinterpret_cast<const char *>(rb_.pos()), family)) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v1: Invalid destination address";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v1: Invalid destination address";
     }
     return -1;
   }
@@ -1461,8 +1459,8 @@ int ClientHandler::proxy_protocol_read() {
   // source port
   auto n = parse_proxy_line_port(rb_.pos(), end);
   if (n <= 0 || *(rb_.pos() + n) != ' ') {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v1: Invalid source port";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v1: Invalid source port";
     }
     return -1;
   }
@@ -1476,8 +1474,8 @@ int ClientHandler::proxy_protocol_read() {
   // destination  port
   n = parse_proxy_line_port(rb_.pos(), end);
   if (n <= 0 || rb_.pos() + n != end) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v1: Invalid destination port";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v1: Invalid destination port";
     }
     return -1;
   }
@@ -1491,9 +1489,9 @@ int ClientHandler::proxy_protocol_read() {
   port_ = make_string_ref(
     balloc_, as_string_view(src_port, static_cast<size_t>(src_portlen)));
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "PROXY-protocol-v1: Finished, " << (rb_.pos() - first)
-                     << " bytes read";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "PROXY-protocol-v1: Finished, " << (rb_.pos() - first)
+                    << " bytes read";
   }
 
   auto config = get_config();
@@ -1527,9 +1525,9 @@ int ClientHandler::proxy_protocol_v2_read() {
     cmd = PROXY;
     break;
   default:
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v2: Unknown command " << log::hex
-                       << cmd_bits;
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v2: Unknown command " << log::hex
+                      << cmd_bits;
     }
     return -1;
   }
@@ -1541,14 +1539,14 @@ int ClientHandler::proxy_protocol_v2_read() {
 
   p += sizeof(len);
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "PROXY-protocol-v2: Detected family=" << log::hex << fam
-                     << ", len=" << log::dec << len;
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "PROXY-protocol-v2: Detected family=" << log::hex << fam
+                    << ", len=" << log::dec << len;
   }
 
   if (rb_.last() - p < len) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this)
+    if (log_enabled(INFO)) {
+      Log{INFO, this}
         << "PROXY-protocol-v2: Prematurely truncated header block; require "
         << len << " bytes, " << rb_.last() - p << " bytes left";
     }
@@ -1564,8 +1562,8 @@ int ClientHandler::proxy_protocol_v2_read() {
   case 0x11:
   case 0x12:
     if (len < 12) {
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this) << "PROXY-protocol-v2: Too short AF_INET addresses";
+      if (log_enabled(INFO)) {
+        Log{INFO, this} << "PROXY-protocol-v2: Too short AF_INET addresses";
       }
       return -1;
     }
@@ -1575,8 +1573,8 @@ int ClientHandler::proxy_protocol_v2_read() {
   case 0x21:
   case 0x22:
     if (len < 36) {
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this) << "PROXY-protocol-v2: Too short AF_INET6 addresses";
+      if (log_enabled(INFO)) {
+        Log{INFO, this} << "PROXY-protocol-v2: Too short AF_INET6 addresses";
       }
       return -1;
     }
@@ -1586,42 +1584,42 @@ int ClientHandler::proxy_protocol_v2_read() {
   case 0x31:
   case 0x32:
     if (len < 216) {
-      if (LOG_ENABLED(INFO)) {
-        CLOG(INFO, this) << "PROXY-protocol-v2: Too short AF_UNIX addresses";
+      if (log_enabled(INFO)) {
+        Log{INFO, this} << "PROXY-protocol-v2: Too short AF_UNIX addresses";
       }
       return -1;
     }
     // fall through
   case 0x00: {
     // UNSPEC and UNIX are just ignored.
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v2: Ignore combination of address "
-                          "family and protocol "
-                       << log::hex << fam;
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v2: Ignore combination of address "
+                         "family and protocol "
+                      << log::hex << fam;
     }
     rb_.drain(PROXY_PROTO_V2_HDLEN + len);
     return on_proxy_protocol_finish();
   }
   default:
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v2: Unknown combination of address "
-                          "family and protocol "
-                       << log::hex << fam;
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v2: Unknown combination of address "
+                         "family and protocol "
+                      << log::hex << fam;
     }
     return -1;
   }
 
   if (cmd != PROXY) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v2: Ignore non-PROXY command";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v2: Ignore non-PROXY command";
     }
     rb_.drain(PROXY_PROTO_V2_HDLEN + len);
     return on_proxy_protocol_finish();
   }
 
   if (inet_ntop(family, p, src_addr.data(), src_addr.size()) == nullptr) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this) << "PROXY-protocol-v2: Unable to parse source address";
+    if (log_enabled(INFO)) {
+      Log{INFO, this} << "PROXY-protocol-v2: Unable to parse source address";
     }
     return -1;
   }
@@ -1629,8 +1627,8 @@ int ClientHandler::proxy_protocol_v2_read() {
   p += addrlen;
 
   if (inet_ntop(family, p, dst_addr.data(), dst_addr.size()) == nullptr) {
-    if (LOG_ENABLED(INFO)) {
-      CLOG(INFO, this)
+    if (log_enabled(INFO)) {
+      Log{INFO, this}
         << "PROXY-protocol-v2: Unable to parse destination address";
     }
     return -1;
@@ -1649,11 +1647,11 @@ int ClientHandler::proxy_protocol_v2_read() {
   ipaddr_ = make_string_ref(balloc_, std::string_view{src_addr.data()});
   port_ = util::make_string_ref_uint(balloc_, src_port);
 
-  if (LOG_ENABLED(INFO)) {
-    CLOG(INFO, this) << "PROXY-protocol-v2: Finished reading proxy addresses, "
-                     << p - rb_.pos() << " bytes read, "
-                     << PROXY_PROTO_V2_HDLEN + len - as_unsigned(p - rb_.pos())
-                     << " bytes left";
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "PROXY-protocol-v2: Finished reading proxy addresses, "
+                    << p - rb_.pos() << " bytes read, "
+                    << PROXY_PROTO_V2_HDLEN + len - as_unsigned(p - rb_.pos())
+                    << " bytes left";
   }
 
   auto config = get_config();

@@ -73,8 +73,8 @@ APIDownstreamConnection::~APIDownstreamConnection() {
 }
 
 int APIDownstreamConnection::attach_downstream(Downstream *downstream) {
-  if (LOG_ENABLED(INFO)) {
-    DCLOG(INFO, this) << "Attaching to DOWNSTREAM:" << downstream;
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Attaching to DOWNSTREAM:" << downstream;
   }
 
   downstream_ = downstream;
@@ -83,8 +83,8 @@ int APIDownstreamConnection::attach_downstream(Downstream *downstream) {
 }
 
 void APIDownstreamConnection::detach_downstream(Downstream *downstream) {
-  if (LOG_ENABLED(INFO)) {
-    DCLOG(INFO, this) << "Detaching from DOWNSTREAM:" << downstream;
+  if (log_enabled(INFO)) {
+    Log{INFO, this} << "Detaching from DOWNSTREAM:" << downstream;
   }
   downstream_ = nullptr;
 }
@@ -315,7 +315,7 @@ int APIDownstreamConnection::push_upload_data_chunk(
       ;
     if (nwrite == -1) {
       auto error = errno;
-      LOG(ERROR) << "Could not write API request body: errno=" << error;
+      Log{ERROR} << "Could not write API request body: errno=" << error;
       send_reply(500, APIStatusCode::FAILURE);
 
       return 0;
