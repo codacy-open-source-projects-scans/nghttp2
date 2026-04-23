@@ -39,7 +39,8 @@ static const MunitTest tests[] = {
 };
 
 const MunitSuite helper_suite = {
-  "/helper", tests, NULL, 1, MUNIT_SUITE_OPTION_NONE,
+  .prefix = "/helper",
+  .tests = tests,
 };
 
 void test_nghttp2_adjust_local_window_size(void) {
@@ -170,9 +171,10 @@ void test_nghttp2_check_header_name(void) {
   nghttp2_check_header_value((const uint8_t *)S, nghttp2_strlen_lit(S))
 
 void test_nghttp2_check_header_value(void) {
-  uint8_t goodval[] = {'a', 'b', 0x80u, 'c', 0xffu, 'd', '\t', ' '};
-  uint8_t badval1[] = {'a', 0x1fu, 'b'};
-  uint8_t badval2[] = {'a', 0x7fu, 'b'};
+  static const uint8_t goodval[] = {'a', 'b',  0x80u, 'c',  0xffu,
+                                    'd', '\t', ' ',   0x00u};
+  static const uint8_t badval1[] = {'a', 0x1fu, 'b', 0x00u};
+  static const uint8_t badval2[] = {'a', 0x7fu, 'b', 0x00u};
 
   assert_true(check_header_value(" !|}~"));
   assert_true(check_header_value(goodval));
@@ -187,9 +189,9 @@ void test_nghttp2_check_header_value(void) {
   nghttp2_check_header_value_rfc9113((const uint8_t *)S, nghttp2_strlen_lit(S))
 
 void test_nghttp2_check_header_value_rfc9113(void) {
-  uint8_t goodval[] = {'a', 'b', 0x80u, 'c', 0xffu, 'd'};
-  uint8_t badval1[] = {'a', 0x1fu, 'b'};
-  uint8_t badval2[] = {'a', 0x7fu, 'b'};
+  static const uint8_t goodval[] = {'a', 'b', 0x80u, 'c', 0xffu, 'd', 0x00u};
+  static const uint8_t badval1[] = {'a', 0x1fu, 'b', 0x00u};
+  static const uint8_t badval2[] = {'a', 0x7fu, 'b', 0x00u};
 
   assert_true(check_header_value_rfc9113("!|}~"));
   assert_false(check_header_value_rfc9113(" !|}~"));

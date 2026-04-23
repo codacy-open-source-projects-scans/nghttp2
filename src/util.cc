@@ -162,24 +162,29 @@ constexpr auto WEEKDAY = std::to_array({
 });
 
 std::string format_http_date(const std::chrono::system_clock::time_point &tp) {
-  // Sat, 27 Sep 2014 06:31:15 GMT
-  std::string res(29 + /* NUL */ 1, 0);
+  std::string res;
 
-  auto s = format_http_date(res.data(), tp);
+  res.resize_and_overwrite("Sat, 27 Sep 2014 06:31:15 GMT"sv.size() +
+                             /* NUL */ 1,
+                           [tp](auto p, auto len) {
+                             auto s = format_http_date(p, tp);
 
-  res.resize(s.size());
+                             return s.size();
+                           });
 
   return res;
 }
 
 std::string format_iso8601(const std::chrono::system_clock::time_point &tp) {
-  // 2014-11-15T12:58:24.741Z
-  // 2014-11-15T12:58:24.741+09:00
-  std::string res(29 + /* NUL */ 1, 0);
+  std::string res;
 
-  auto s = format_iso8601(res.data(), tp);
+  res.resize_and_overwrite("2014-11-15T12:58:24.741+09:00"sv.size() +
+                             /* NUL */ 1,
+                           [tp](auto p, auto len) {
+                             auto s = format_iso8601(p, tp);
 
-  res.resize(s.size());
+                             return s.size();
+                           });
 
   return res;
 }
@@ -863,22 +868,32 @@ std::string to_numeric_addr(const struct sockaddr *sa, socklen_t salen) {
   auto serv = std::string_view{servbuf.data()};
 
   std::string s;
-  char *p;
 
   if (family == AF_INET6) {
-    s.resize(host.size() + serv.size() + 2 + 1);
-    p = &s[0];
-    *p++ = '[';
-    p = std::ranges::copy(host, p).out;
-    *p++ = ']';
-  } else {
-    s.resize(host.size() + serv.size() + 1);
-    p = &s[0];
-    p = std::ranges::copy(host, p).out;
-  }
+    s.resize_and_overwrite(host.size() + serv.size() + 2 + 1,
+                           [host, serv](auto p, auto len) {
+                             auto first = p;
 
-  *p++ = ':';
-  std::ranges::copy(serv, p);
+                             *p++ = '[';
+                             p = std::ranges::copy(host, p).out;
+                             *p++ = ']';
+                             *p++ = ':';
+                             p = std::ranges::copy(serv, p).out;
+
+                             return std::ranges::distance(first, p);
+                           });
+  } else {
+    s.resize_and_overwrite(host.size() + serv.size() + 1,
+                           [host, serv](auto p, auto len) {
+                             auto first = p;
+
+                             p = std::ranges::copy(host, p).out;
+                             *p++ = ':';
+                             p = std::ranges::copy(serv, p).out;
+
+                             return std::ranges::distance(first, p);
+                           });
+  }
 
   return s;
 }
@@ -992,73 +1007,52 @@ bool select_protocol(const unsigned char **out, unsigned char *outlen,
 }
 
 std::vector<std::string_view> split_str(std::string_view s, char delim) {
-  size_t len = 1;
-  auto last = std::ranges::end(s);
-  std::string_view::const_iterator d;
-  for (auto first = std::ranges::begin(s);
-       (d = std::ranges::find(first, last, delim)) != last;
-       ++len, first = d + 1)
-    ;
+  return s | std::ranges::views::split(delim) |
+         std::ranges::views::transform(
+           [](auto &&r) { return std::string_view{r}; }) |
+         std::ranges::to<std::vector>();
+}
 
-  auto list = std::vector<std::string_view>(len);
-
-  len = 0;
-  for (auto first = std::ranges::begin(s);; ++len) {
-    auto stop = std::ranges::find(first, last, delim);
-    list[len] = std::string_view{first, stop};
-    if (stop == last) {
-      break;
-    }
-    first = stop + 1;
-  }
-  return list;
+std::vector<std::string_view> split_str(BlockAllocator &balloc,
+                                        std::string_view s, char delim) {
+  return s | std::ranges::views::split(delim) |
+         std::ranges::views::transform(
+           [&balloc](auto &&r) { return make_string_ref(balloc, r); }) |
+         std::ranges::to<std::vector>();
 }
 
 std::vector<std::string_view> split_str(std::string_view s, char delim,
                                         size_t n) {
-  if (n == 0) {
-    return split_str(s, delim);
+  assert(n);
+
+  if (s.empty()) {
+    return {};
   }
 
   if (n == 1) {
     return {s};
   }
 
-  size_t len = 1;
-  auto last = std::ranges::end(s);
-  std::string_view::const_iterator d;
-  for (auto first = std::ranges::begin(s);
-       len < n && (d = std::ranges::find(first, last, delim)) != last;
-       ++len, first = d + 1)
-    ;
+  auto res = std::vector<std::string_view>{};
+  res.reserve(n);
 
-  auto list = std::vector<std::string_view>(len);
+  auto parts = std::ranges::views::split(s, delim);
+  auto it = std::ranges::begin(parts);
 
-  len = 0;
-  for (auto first = std::ranges::begin(s);; ++len) {
-    if (len == n - 1) {
-      list[len] = std::string_view{first, last};
-      break;
-    }
-
-    auto stop = std::ranges::find(first, last, delim);
-    list[len] = std::string_view{first, stop};
-    if (stop == last) {
-      break;
-    }
-    first = stop + 1;
+  for (; it != std::ranges::end(parts) && n > 1; ++it, --n) {
+    res.emplace_back(*it);
   }
-  return list;
+
+  if (it != std::ranges::end(parts)) {
+    res.emplace_back(it.base(), std::ranges::end(s));
+  }
+
+  return res;
 }
 
 std::vector<std::string> parse_config_str_list(std::string_view s, char delim) {
-  auto sublist = split_str(s, delim);
-  auto res = std::vector<std::string>();
-  res.reserve(sublist.size());
-  for (const auto &s : sublist) {
-    res.emplace_back(std::ranges::begin(s), std::ranges::end(s));
-  }
-  return res;
+  return s | std::ranges::views::split(delim) |
+         std::ranges::to<std::vector<std::string>>();
 }
 
 int make_socket_closeonexec(int fd) {
