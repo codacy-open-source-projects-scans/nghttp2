@@ -2529,13 +2529,13 @@ int time_t_from_asn1_time(time_t &t, const ASN1_TIME *at) {
 
   char *s;
   auto slen = BIO_get_mem_data(b, &s);
-  auto tt = util::parse_openssl_asn1_time_print(
+  auto maybe_time = util::parse_openssl_asn1_time_print(
     std::string_view{s, static_cast<size_t>(slen)});
-  if (tt == 0) {
+  if (!maybe_time) {
     return -1;
   }
 
-  t = tt;
+  t = *maybe_time;
 #endif // !defined(NGHTTP2_GENUINE_OPENSSL) &&
        // !defined(NGHTTP2_OPENSSL_IS_LIBRESSL) &&
        // !defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
@@ -2563,14 +2563,14 @@ int get_x509_not_after(time_t &t, X509 *x) {
 }
 
 #ifdef NGHTTP2_OPENSSL_IS_BORINGSSL
-std::optional<HPKEPrivateKey> read_hpke_private_key_pem(BlockAllocator &balloc,
-                                                        std::string_view path) {
+std::expected<HPKEPrivateKey, Error>
+read_hpke_private_key_pem(BlockAllocator &balloc, std::string_view path) {
   auto f = BIO_new_file(path.data(), "r");
   if (!f) {
     Log{ERROR} << "Could not open HPKE private key file " << path << ": "
                << ERR_error_string(ERR_get_error(), nullptr);
 
-    return {};
+    return std::unexpected{Error::IO};
   }
 
   auto f_d = defer([f] { BIO_free(f); });
@@ -2581,7 +2581,7 @@ std::optional<HPKEPrivateKey> read_hpke_private_key_pem(BlockAllocator &balloc,
     Log{ERROR} << "Could not read HPKE private key file " << path << ": "
                << ERR_error_string(ERR_get_error(), nullptr);
 
-    return {};
+    return std::unexpected{Error::IO};
   }
 
   auto pkey_d = defer([pkey] { EVP_PKEY_free(pkey); });
@@ -2598,7 +2598,7 @@ std::optional<HPKEPrivateKey> read_hpke_private_key_pem(BlockAllocator &balloc,
   default:
     Log{ERROR} << "Unsupported HPKE private key type " << log::hex << pkey_id;
 
-    return {};
+    return std::unexpected{Error::UNSUPPORTED};
   }
 
   size_t len;
@@ -2613,14 +2613,14 @@ std::optional<HPKEPrivateKey> read_hpke_private_key_pem(BlockAllocator &balloc,
   return res;
 }
 
-std::optional<std::span<const uint8_t>>
+std::expected<std::span<const uint8_t>, Error>
 read_pem(BlockAllocator &balloc, std::string_view path, std::string_view type) {
   auto f = BIO_new_file(path.data(), "r");
   if (!f) {
     Log{ERROR} << "Could not open PEM file " << path << " of type " << type
                << ": " << ERR_error_string(ERR_get_error(), nullptr);
 
-    return {};
+    return std::unexpected{Error::IO};
   }
 
   auto f_d = defer([f] { BIO_free(f); });
@@ -2634,7 +2634,7 @@ read_pem(BlockAllocator &balloc, std::string_view path, std::string_view type) {
       Log{ERROR} << "Could not read PEM file " << path << " of type " << type
                  << ": " << ERR_error_string(ERR_get_error(), nullptr);
 
-      return {};
+      return std::unexpected{Error::IO};
     }
 
     auto pem_d = defer([pem_type, header, data] {

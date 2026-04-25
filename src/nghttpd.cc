@@ -292,12 +292,12 @@ int main(int argc, char **argv) {
         std::cerr << "-c: Bad option value: " << optarg << std::endl;
         exit(EXIT_FAILURE);
       }
-      if (n > std::numeric_limits<uint32_t>::max()) {
+      if (*n > std::numeric_limits<uint32_t>::max()) {
         std::cerr << "-c: Value too large.  It should be less than or equal to "
                   << std::numeric_limits<uint32_t>::max() << std::endl;
         exit(EXIT_FAILURE);
       }
-      config.header_table_size = *n;
+      config.header_table_size = static_cast<int64_t>(*n);
       break;
     }
     case 'p':
@@ -308,7 +308,7 @@ int main(int argc, char **argv) {
     case 'w':
     case 'W': {
       auto n = util::parse_uint(optarg);
-      if (!n || n > 30) {
+      if (!n || *n > 30) {
         std::cerr << "-" << static_cast<char>(c)
                   << ": specify the integer in the range [0, 30], inclusive"
                   << std::endl;
@@ -397,13 +397,13 @@ int main(int argc, char **argv) {
                     << optarg << std::endl;
           exit(EXIT_FAILURE);
         }
-        if (n > std::numeric_limits<uint32_t>::max()) {
+        if (*n > std::numeric_limits<uint32_t>::max()) {
           std::cerr << "--encoder-header-table-size: Value too large.  It "
                        "should be less than or equal to "
                     << std::numeric_limits<uint32_t>::max() << std::endl;
           exit(EXIT_FAILURE);
         }
-        config.encoder_header_table_size = *n;
+        config.encoder_header_table_size = static_cast<int64_t>(*n);
         break;
       }
       case 12:
@@ -434,7 +434,7 @@ int main(int argc, char **argv) {
   {
     auto portStr = argv[optind++];
     auto n = util::parse_uint(portStr);
-    if (!n || n > std::numeric_limits<uint16_t>::max()) {
+    if (!n || *n > std::numeric_limits<uint16_t>::max()) {
       std::cerr << "<PORT>: Bad value: " << portStr << std::endl;
       exit(EXIT_FAILURE);
     }
@@ -461,12 +461,15 @@ int main(int argc, char **argv) {
     config.htdocs = "./";
   }
 
-  if (util::read_mime_types(config.mime_types,
-                            config.mime_types_file.c_str()) != 0) {
+  if (auto maybe_mime_types =
+        util::read_mime_types(config.mime_types_file.c_str());
+      !maybe_mime_types) {
     if (mime_types_file_set_manually) {
       std::cerr << "--mime-types-file: Could not open mime types file: "
                 << config.mime_types_file << std::endl;
     }
+  } else {
+    config.mime_types = std::move(*maybe_mime_types);
   }
 
   auto &trailer_names = config.trailer_names;

@@ -372,9 +372,8 @@ int Http2Session::initiate_connection() {
                       << proxy.port;
     }
 
-    conn_.fd = util::create_nonblock_socket(proxy.addr.family());
-
-    if (conn_.fd == -1) {
+    auto maybe_fd = util::create_nonblock_socket(proxy.addr.family());
+    if (!maybe_fd) {
       auto error = errno;
       Log{WARN, this} << "Backend proxy socket() failed; addr="
                       << util::to_numeric_addr(&proxy.addr)
@@ -383,6 +382,8 @@ int Http2Session::initiate_connection() {
       worker_blocker->on_failure();
       return -1;
     }
+
+    conn_.fd = *maybe_fd;
 
     rv = connect(conn_.fd, proxy.addr.as_sockaddr(), proxy.addr.size());
     if (rv != 0 && errno != EINPROGRESS) {
@@ -493,8 +494,8 @@ int Http2Session::initiate_connection() {
       if (state_ == Http2SessionState::DISCONNECTED) {
         assert(conn_.fd == -1);
 
-        conn_.fd = util::create_nonblock_socket(raddr_->family());
-        if (conn_.fd == -1) {
+        auto maybe_fd = util::create_nonblock_socket(raddr_->family());
+        if (!maybe_fd) {
           auto error = errno;
           Log{WARN, this} << "socket() failed; addr="
                           << util::to_numeric_addr(raddr_)
@@ -503,6 +504,8 @@ int Http2Session::initiate_connection() {
           worker_blocker->on_failure();
           return -1;
         }
+
+        conn_.fd = *maybe_fd;
 
         worker_blocker->on_success();
 
@@ -557,9 +560,8 @@ int Http2Session::initiate_connection() {
         // Without TLS and proxy.
         assert(conn_.fd == -1);
 
-        conn_.fd = util::create_nonblock_socket(raddr_->family());
-
-        if (conn_.fd == -1) {
+        auto maybe_fd = util::create_nonblock_socket(raddr_->family());
+        if (!maybe_fd) {
           auto error = errno;
           Log{WARN, this} << "socket() failed; addr="
                           << util::to_numeric_addr(raddr_)
@@ -568,6 +570,8 @@ int Http2Session::initiate_connection() {
           worker_blocker->on_failure();
           return -1;
         }
+
+        conn_.fd = *maybe_fd;
 
         worker_blocker->on_success();
 
@@ -1147,7 +1151,7 @@ int on_response_headers(Http2Session *http2session, Downstream *downstream,
     if (content_length) {
       // libnghttp2 guarantees this can be parsed
       resp.fs.content_length =
-        util::parse_uint(content_length->value).value_or(-1);
+        static_cast<int64_t>(*util::parse_uint(content_length->value));
     }
 
     if (resp.fs.content_length == -1 && downstream->expect_response_body()) {

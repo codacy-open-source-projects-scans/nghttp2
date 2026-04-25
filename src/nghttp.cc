@@ -615,10 +615,12 @@ int HttpClient::initiate_connection() {
   while (next_addr) {
     cur_addr = next_addr;
     next_addr = next_addr->ai_next;
-    fd = util::create_nonblock_socket(cur_addr->ai_family);
-    if (fd == -1) {
+    auto maybe_fd = util::create_nonblock_socket(cur_addr->ai_family);
+    if (!maybe_fd) {
       continue;
     }
+
+    fd = *maybe_fd;
 
     if (ssl_ctx) {
       // We are establishing TLS connection.
@@ -2795,7 +2797,7 @@ int main(int argc, char **argv) {
     case 'w':
     case 'W': {
       auto n = util::parse_uint(optarg);
-      if (!n || n > 30) {
+      if (!n || *n > 30) {
         std::cerr << "-" << static_cast<char>(c)
                   << ": specify the integer in the range [0, 30], inclusive"
                   << std::endl;
@@ -2861,13 +2863,14 @@ int main(int argc, char **argv) {
         std::cerr << "-c: Bad option value: " << optarg << std::endl;
         exit(EXIT_FAILURE);
       }
-      if (n > std::numeric_limits<uint32_t>::max()) {
+      if (*n > std::numeric_limits<uint32_t>::max()) {
         std::cerr << "-c: Value too large.  It should be less than or equal to "
                   << std::numeric_limits<uint32_t>::max() << std::endl;
         exit(EXIT_FAILURE);
       }
-      config.header_table_size = *n;
-      config.min_header_table_size = std::min(config.min_header_table_size, *n);
+      config.header_table_size = static_cast<int64_t>(*n);
+      config.min_header_table_size =
+        std::min(config.min_header_table_size, config.header_table_size);
       break;
     }
     case 'y':
@@ -2962,13 +2965,13 @@ int main(int argc, char **argv) {
                     << optarg << std::endl;
           exit(EXIT_FAILURE);
         }
-        if (n > std::numeric_limits<uint32_t>::max()) {
+        if (*n > std::numeric_limits<uint32_t>::max()) {
           std::cerr << "--encoder-header-table-size: Value too large.  It "
                        "should be less than or equal to "
                     << std::numeric_limits<uint32_t>::max() << std::endl;
           exit(EXIT_FAILURE);
         }
-        config.encoder_header_table_size = *n;
+        config.encoder_header_table_size = static_cast<int64_t>(*n);
         break;
       }
       case 15:

@@ -311,7 +311,7 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
   if (content_length) {
     // libnghttp2 guarantees this can be parsed
     req.fs.content_length =
-      util::parse_uint(content_length->value).value_or(-1);
+      static_cast<int64_t>(*util::parse_uint(content_length->value));
   }
 
   // presence of mandatory header fields are guaranteed by libnghttp2.
@@ -1983,8 +1983,8 @@ int Http2Upstream::redirect_to_https(Downstream *downstream) {
     return error_reply(downstream, 400);
   }
 
-  auto authority = util::extract_host(req.authority);
-  if (authority.empty()) {
+  auto maybe_authority = util::extract_host(req.authority);
+  if (!maybe_authority) {
     return error_reply(downstream, 400);
   }
 
@@ -1994,9 +1994,9 @@ int Http2Upstream::redirect_to_https(Downstream *downstream) {
 
   std::string_view loc;
   if (httpconf.redirect_https_port == "443"sv) {
-    loc = concat_string_ref(balloc, "https://"sv, authority, req.path);
+    loc = concat_string_ref(balloc, "https://"sv, *maybe_authority, req.path);
   } else {
-    loc = concat_string_ref(balloc, "https://"sv, authority, ":"sv,
+    loc = concat_string_ref(balloc, "https://"sv, *maybe_authority, ":"sv,
                             httpconf.redirect_https_port, req.path);
   }
 

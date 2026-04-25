@@ -548,47 +548,128 @@ void test_util_utos_funit(void) {
 }
 
 void test_util_parse_uint_with_unit(void) {
-  assert_int64(0, ==, util::parse_uint_with_unit("0").value_or(-1));
-  assert_int64(1023, ==, util::parse_uint_with_unit("1023").value_or(-1));
-  assert_int64(1024, ==, util::parse_uint_with_unit("1k").value_or(-1));
-  assert_int64(2048, ==, util::parse_uint_with_unit("2K").value_or(-1));
-  assert_int64(1 << 20, ==, util::parse_uint_with_unit("1m").value_or(-1));
-  assert_int64(1 << 21, ==, util::parse_uint_with_unit("2M").value_or(-1));
-  assert_int64(1 << 30, ==, util::parse_uint_with_unit("1g").value_or(-1));
-  assert_int64(1LL << 31, ==, util::parse_uint_with_unit("2G").value_or(-1));
-  assert_int64(9223372036854775807LL, ==,
-               util::parse_uint_with_unit("9223372036854775807").value_or(-1));
+  constexpr auto badval = std::numeric_limits<uint64_t>::max();
+
+  assert_uint64(0, ==, util::parse_uint_with_unit("0").value_or(badval));
+  assert_uint64(1023, ==, util::parse_uint_with_unit("1023").value_or(badval));
+  assert_uint64(1024, ==, util::parse_uint_with_unit("1k").value_or(badval));
+  assert_uint64(2048, ==, util::parse_uint_with_unit("2K").value_or(badval));
+  assert_uint64(1 << 20, ==, util::parse_uint_with_unit("1m").value_or(badval));
+  assert_uint64(1 << 21, ==, util::parse_uint_with_unit("2M").value_or(badval));
+  assert_uint64(1 << 30, ==, util::parse_uint_with_unit("1g").value_or(badval));
+  assert_uint64(1LL << 31, ==,
+                util::parse_uint_with_unit("2G").value_or(badval));
+  assert_uint64(
+    9223372036854775807LL, ==,
+    util::parse_uint_with_unit("9223372036854775807").value_or(badval));
   // check overflow case
-  assert_false(util::parse_uint_with_unit("9223372036854775808"));
-  assert_false(util::parse_uint_with_unit("10000000000000000000"));
-  assert_false(util::parse_uint_with_unit("9223372036854775807G"));
+  {
+    auto rv = util::parse_uint_with_unit("9223372036854775808");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INTEGER_OVERFLOW == rv.error());
+  }
+  {
+    auto rv = util::parse_uint_with_unit("10000000000000000000");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INTEGER_OVERFLOW == rv.error());
+  }
+  {
+    auto rv = util::parse_uint_with_unit("9223372036854775807G");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INTEGER_OVERFLOW == rv.error());
+  }
   // bad characters
-  assert_false(util::parse_uint_with_unit("1.1"));
-  assert_false(util::parse_uint_with_unit("1a"));
-  assert_false(util::parse_uint_with_unit("a1"));
-  assert_false(util::parse_uint_with_unit("1T"));
-  assert_false(util::parse_uint_with_unit(""));
+  {
+    auto rv = util::parse_uint_with_unit("1.1");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_uint_with_unit("1a");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_uint_with_unit("a1");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_uint_with_unit("1T");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_uint_with_unit("");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
 }
 
 void test_util_parse_uint(void) {
-  assert_int64(0, ==, util::parse_uint("0").value_or(-1));
-  assert_int64(1023, ==, util::parse_uint("1023").value_or(-1));
+  constexpr auto badval = std::numeric_limits<uint64_t>::max();
+
+  assert_uint64(0, ==, util::parse_uint("0").value_or(badval));
+  assert_uint64(1023, ==, util::parse_uint("1023").value_or(badval));
   assert_false(util::parse_uint("1k"));
-  assert_int64(9223372036854775807LL, ==,
-               util::parse_uint("9223372036854775807").value_or(-1));
+  assert_uint64(9223372036854775807LL, ==,
+                util::parse_uint("9223372036854775807").value_or(badval));
   // check overflow case
-  assert_false(util::parse_uint("9223372036854775808"));
-  assert_false(util::parse_uint("10000000000000000000"));
+  {
+    auto rv = util::parse_uint("9223372036854775808");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INTEGER_OVERFLOW == rv.error());
+  }
+  {
+    auto rv = util::parse_uint("10000000000000000000");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INTEGER_OVERFLOW == rv.error());
+  }
   // bad characters
-  assert_false(util::parse_uint("1.1"));
-  assert_false(util::parse_uint("1a"));
-  assert_false(util::parse_uint("a1"));
-  assert_false(util::parse_uint("1T"));
-  assert_false(util::parse_uint(""));
+  {
+    auto rv = util::parse_uint("1.1");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_uint("1a");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_uint("a1");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_uint("1T");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_uint("");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
 }
 
 void test_util_parse_duration_with_unit(void) {
-  auto inf = std::numeric_limits<double>::infinity();
+  constexpr auto inf = std::numeric_limits<double>::infinity();
 
   assert_double(0., ==, util::parse_duration_with_unit("0").value_or(inf));
   assert_double(123., ==, util::parse_duration_with_unit("123").value_or(inf));
@@ -603,14 +684,49 @@ void test_util_parse_duration_with_unit(void) {
                 util::parse_duration_with_unit("5h").value_or(inf));
 
   // check overflow case
-  assert_false(util::parse_duration_with_unit("9223372036854775808"));
+  {
+    auto rv = util::parse_duration_with_unit("9223372036854775808");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INTEGER_OVERFLOW == rv.error());
+  }
   // bad characters
-  assert_false(util::parse_duration_with_unit("0u"));
-  assert_false(util::parse_duration_with_unit("0xs"));
-  assert_false(util::parse_duration_with_unit("0mt"));
-  assert_false(util::parse_duration_with_unit("0mss"));
-  assert_false(util::parse_duration_with_unit("s"));
-  assert_false(util::parse_duration_with_unit("ms"));
+  {
+    auto rv = util::parse_duration_with_unit("0u");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_duration_with_unit("0xs");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_duration_with_unit("0mt");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_duration_with_unit("0mss");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_duration_with_unit("s");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
+  {
+    auto rv = util::parse_duration_with_unit("ms");
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
 }
 
 void test_util_duration_str(void) {
@@ -677,7 +793,15 @@ void test_util_ends_with(void) {
 
 void test_util_parse_http_date(void) {
   assert_int64(1001939696, ==,
-               util::parse_http_date("Mon, 1 Oct 2001 12:34:56 GMT"sv));
+               util::parse_http_date("Mon, 1 Oct 2001 12:34:56 GMT"sv)
+                 .value_or(std::numeric_limits<time_t>::max()));
+
+  {
+    auto rv = util::parse_http_date("Mon, 1 Oct 200X 12:34:56 GMT"sv);
+
+    assert_false(rv.has_value());
+    assert_true(Error::INVALID_ARGUMENT == rv.error());
+  }
 }
 
 void test_util_localtime_date(void) {
@@ -949,31 +1073,35 @@ void test_util_decode_hex(void) {
 }
 
 void test_util_extract_host(void) {
-  assert_stdsv_equal("foo"sv, util::extract_host("foo"sv));
-  assert_stdsv_equal("foo"sv, util::extract_host("foo:"sv));
-  assert_stdsv_equal("foo"sv, util::extract_host("foo:0"sv));
-  assert_stdsv_equal("[::1]"sv, util::extract_host("[::1]"sv));
-  assert_stdsv_equal("[::1]"sv, util::extract_host("[::1]:"sv));
+  assert_stdsv_equal("foo"sv, util::extract_host("foo"sv).value_or(""));
+  assert_stdsv_equal("foo"sv, util::extract_host("foo:"sv).value_or(""));
+  assert_stdsv_equal("foo"sv, util::extract_host("foo:0"sv).value_or(""));
+  assert_stdsv_equal("[::1]"sv, util::extract_host("[::1]"sv).value_or(""));
+  assert_stdsv_equal("[::1]"sv, util::extract_host("[::1]:"sv).value_or(""));
 
-  assert_true(util::extract_host(":foo"sv).empty());
-  assert_true(util::extract_host("[::1"sv).empty());
-  assert_true(util::extract_host("[::1]0"sv).empty());
-  assert_true(util::extract_host(""sv).empty());
+  assert_false(util::extract_host(":foo"sv).has_value());
+  assert_false(util::extract_host("[::1"sv).has_value());
+  assert_false(util::extract_host("[::1]0"sv).has_value());
+  assert_false(util::extract_host(""sv).has_value());
 }
 
 void test_util_split_hostport(void) {
-  assert_true(std::make_pair("foo"sv, ""sv) == util::split_hostport("foo"sv));
-  assert_true(std::make_pair("foo"sv, "80"sv) ==
-              util::split_hostport("foo:80"sv));
-  assert_true(std::make_pair("::1"sv, "80"sv) ==
-              util::split_hostport("[::1]:80"sv));
-  assert_true(std::make_pair("::1"sv, ""sv) == util::split_hostport("[::1]"sv));
+  static constexpr auto empty = std::pair<std::string_view, std::string_view>{};
 
-  assert_true(std::make_pair(""sv, ""sv) == util::split_hostport(""sv));
-  assert_true(std::make_pair(""sv, ""sv) == util::split_hostport("[::1]:"sv));
-  assert_true(std::make_pair(""sv, ""sv) == util::split_hostport("foo:"sv));
-  assert_true(std::make_pair(""sv, ""sv) == util::split_hostport("[::1:"sv));
-  assert_true(std::make_pair(""sv, ""sv) == util::split_hostport("[::1]80"sv));
+  assert_true(std::make_pair("foo"sv, ""sv) ==
+              util::split_hostport("foo"sv).value_or(empty));
+  assert_true(std::make_pair("foo"sv, "80"sv) ==
+              util::split_hostport("foo:80"sv).value_or(empty));
+  assert_true(std::make_pair("::1"sv, "80"sv) ==
+              util::split_hostport("[::1]:80"sv).value_or(empty));
+  assert_true(std::make_pair("::1"sv, ""sv) ==
+              util::split_hostport("[::1]"sv).value_or(empty));
+
+  assert_false(util::split_hostport(""sv).has_value());
+  assert_false(util::split_hostport("[::1]:"sv).has_value());
+  assert_false(util::split_hostport("foo:"sv).has_value());
+  assert_false(util::split_hostport("[::1:"sv).has_value());
+  assert_false(util::split_hostport("[::1]80"sv).has_value());
 }
 
 void test_util_split_str(void) {
