@@ -44,7 +44,6 @@
 #include <vector>
 #include <string>
 #include <algorithm>
-#include <sstream>
 #include <memory>
 #include <chrono>
 #include <unordered_map>
@@ -947,9 +946,6 @@ uint16_t get_default_port(const char *uri, const urlparse_url &u);
 bool porteq(const char *uri1, const urlparse_url &u1, const char *uri2,
             const urlparse_url &u2);
 
-void write_uri_field(std::ostream &o, const char *uri, const urlparse_url &u,
-                     urlparse_url_fields field);
-
 bool numeric_host(const char *hostname);
 
 bool numeric_host(const char *hostname, int family);
@@ -1126,8 +1122,9 @@ std::expected<void, Error> bind_any_addr_udp(int fd, int family);
 bool check_socket_connected(int fd);
 
 // Returns the error code (errno) by inspecting SO_ERROR of given
-// |fd|.  This function returns the error code if it succeeds, or -1.
-// Returning 0 means no error.
+// |fd|.  This function returns the error code if it succeeds.
+// Returning 0 means no error.  If getsockopt fails, this function
+// returns errno of its call.
 int get_socket_error(int fd);
 
 // Returns true if |host| is IPv6 numeric address (e.g., ::1)
