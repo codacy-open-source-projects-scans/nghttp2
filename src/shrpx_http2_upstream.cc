@@ -446,9 +446,9 @@ void Http2Upstream::initiate_downstream(Downstream *downstream) {
 #endif // defined(HAVE_MRUBY)
 
   for (;;) {
-    auto dconn = handler_->get_downstream_connection(rv, downstream);
-    if (!dconn) {
-      if (rv == SHRPX_ERR_TLS_REQUIRED) {
+    auto maybe_dconn = handler_->get_downstream_connection(downstream);
+    if (!maybe_dconn) {
+      if (maybe_dconn.error() == Error::TLS_REQUIRED) {
         rv = redirect_to_https(downstream);
       } else {
         rv = error_reply(downstream, 502);
@@ -463,11 +463,12 @@ void Http2Upstream::initiate_downstream(Downstream *downstream) {
       return;
     }
 
+    auto dconn = std::move(*maybe_dconn);
+
 #ifdef HAVE_MRUBY
     dconn_ptr = dconn.get();
 #endif // defined(HAVE_MRUBY)
-    rv = downstream->attach_downstream_connection(std::move(dconn));
-    if (rv == 0) {
+    if (downstream->attach_downstream_connection(std::move(dconn))) {
       break;
     }
   }
@@ -492,8 +493,7 @@ void Http2Upstream::initiate_downstream(Downstream *downstream) {
   }
 #endif // defined(HAVE_MRUBY)
 
-  rv = downstream->push_request_headers();
-  if (rv != 0) {
+  if (!downstream->push_request_headers()) {
     if (error_reply(downstream, 502) != 0) {
       rst_stream(downstream, NGHTTP2_INTERNAL_ERROR);
     }
@@ -506,11 +506,8 @@ void Http2Upstream::initiate_downstream(Downstream *downstream) {
   downstream_queue_.mark_active(downstream);
 
   auto &req = downstream->request();
-  if (!req.http2_expect_body) {
-    rv = downstream->end_upload_data();
-    if (rv != 0) {
-      rst_stream(downstream, NGHTTP2_INTERNAL_ERROR);
-    }
+  if (!req.http2_expect_body && !downstream->end_upload_data()) {
+    rst_stream(downstream, NGHTTP2_INTERNAL_ERROR);
   }
 
   return;
@@ -536,10 +533,9 @@ int on_frame_recv_callback(nghttp2_session *session, const nghttp2_frame *frame,
     if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
       downstream->disable_upstream_rtimer();
 
-      if (downstream->end_upload_data() != 0) {
-        if (downstream->get_response_state() != DownstreamState::MSG_COMPLETE) {
-          upstream->rst_stream(downstream, NGHTTP2_INTERNAL_ERROR);
-        }
+      if (!downstream->end_upload_data() &&
+          downstream->get_response_state() != DownstreamState::MSG_COMPLETE) {
+        upstream->rst_stream(downstream, NGHTTP2_INTERNAL_ERROR);
       }
 
       downstream->set_request_state(DownstreamState::MSG_COMPLETE);
@@ -565,10 +561,9 @@ int on_frame_recv_callback(nghttp2_session *session, const nghttp2_frame *frame,
     if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
       downstream->disable_upstream_rtimer();
 
-      if (downstream->end_upload_data() != 0) {
-        if (downstream->get_response_state() != DownstreamState::MSG_COMPLETE) {
-          upstream->rst_stream(downstream, NGHTTP2_INTERNAL_ERROR);
-        }
+      if (!downstream->end_upload_data() &&
+          downstream->get_response_state() != DownstreamState::MSG_COMPLETE) {
+        upstream->rst_stream(downstream, NGHTTP2_INTERNAL_ERROR);
       }
 
       downstream->set_request_state(DownstreamState::MSG_COMPLETE);
@@ -617,7 +612,7 @@ int on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flags,
 
   downstream->reset_upstream_rtimer();
 
-  if (downstream->push_upload_data_chunk({data, len}) != 0) {
+  if (!downstream->push_upload_data_chunk({data, len})) {
     if (downstream->get_response_state() != DownstreamState::MSG_COMPLETE) {
       upstream->rst_stream(downstream, NGHTTP2_INTERNAL_ERROR);
     }
@@ -834,7 +829,7 @@ int send_data_callback(nghttp2_session *session, nghttp2_frame *frame,
     downstream->reset_upstream_wtimer();
   }
 
-  if (length > 0 && downstream->resume_read(SHRPX_NO_BUFFER, length) != 0) {
+  if (length > 0 && !downstream->resume_read(SHRPX_NO_BUFFER, length)) {
     return NGHTTP2_ERR_CALLBACK_FAILURE;
   }
 
@@ -1160,9 +1155,10 @@ int Http2Upstream::on_write() {
        http2conf.upstream.optimize_window_size) &&
       handler_->get_ssl()) {
     auto conn = handler_->get_connection();
-    TCPHint hint;
-    rv = conn->get_tcp_hint(&hint);
-    if (rv == 0) {
+    auto maybe_hint = conn->get_tcp_hint();
+    if (maybe_hint) {
+      const auto &hint = *maybe_hint;
+
       if (http2conf.upstream.optimize_write_buffer_size) {
         max_buffer_size_ = std::min(MAX_BUFFER_SIZE, hint.write_buffer_size);
       }
@@ -1219,7 +1215,8 @@ int Http2Upstream::on_write() {
 
 ClientHandler *Http2Upstream::get_client_handler() const { return handler_; }
 
-int Http2Upstream::downstream_read(DownstreamConnection *dconn) {
+std::expected<void, Error>
+Http2Upstream::downstream_read(DownstreamConnection *dconn) {
   auto downstream = dconn->get_downstream();
 
   if (downstream->get_response_state() == DownstreamState::MSG_RESET) {
@@ -1235,26 +1232,26 @@ int Http2Upstream::downstream_read(DownstreamConnection *dconn) {
   } else if (downstream->get_response_state() ==
              DownstreamState::MSG_BAD_HEADER) {
     if (error_reply(downstream, 502) != 0) {
-      return -1;
+      return std::unexpected{Error::INTERNAL};
     }
     downstream->pop_downstream_connection();
     // dconn was deleted
     dconn = nullptr;
   } else {
     auto rv = downstream->on_read();
-    if (rv == SHRPX_ERR_EOF) {
-      if (downstream->get_request_header_sent()) {
-        return downstream_eof(dconn);
+    if (!rv) {
+      if (rv.error() == Error::RECV_EOF) {
+        if (downstream->get_request_header_sent()) {
+          return downstream_eof(dconn);
+        }
+        return std::unexpected{Error::DCONN_RETRY};
       }
-      return SHRPX_ERR_RETRY;
-    }
-    if (rv == SHRPX_ERR_DCONN_CANCELED) {
-      downstream->pop_downstream_connection();
-      handler_->signal_write();
-      return 0;
-    }
-    if (rv != 0) {
-      if (rv != SHRPX_ERR_NETWORK) {
+      if (rv.error() == Error::DCONN_CANCELED) {
+        downstream->pop_downstream_connection();
+        handler_->signal_write();
+        return {};
+      }
+      if (rv.error() != Error::NETWORK) {
         if (log_enabled(INFO)) {
           Log{INFO, dconn} << "HTTP parser failure";
         }
@@ -1272,22 +1269,25 @@ int Http2Upstream::downstream_read(DownstreamConnection *dconn) {
 
   // At this point, downstream may be deleted.
 
-  return 0;
+  return {};
 }
 
-int Http2Upstream::downstream_write(DownstreamConnection *dconn) {
-  int rv;
-  rv = dconn->on_write();
-  if (rv == SHRPX_ERR_NETWORK) {
-    return downstream_error(dconn, Downstream::EVENT_ERROR);
-  }
-  if (rv != 0) {
+std::expected<void, Error>
+Http2Upstream::downstream_write(DownstreamConnection *dconn) {
+  auto rv = dconn->on_write();
+  if (!rv) {
+    if (rv.error() == Error::NETWORK) {
+      return downstream_error(dconn, Downstream::EVENT_ERROR);
+    }
+
     return rv;
   }
-  return 0;
+
+  return {};
 }
 
-int Http2Upstream::downstream_eof(DownstreamConnection *dconn) {
+std::expected<void, Error>
+Http2Upstream::downstream_eof(DownstreamConnection *dconn) {
   auto downstream = dconn->get_downstream();
 
   if (log_enabled(INFO)) {
@@ -1317,15 +1317,16 @@ int Http2Upstream::downstream_eof(DownstreamConnection *dconn) {
     // If stream was not closed, then we set MSG_COMPLETE and let
     // on_stream_close_callback delete downstream.
     if (error_reply(downstream, 502) != 0) {
-      return -1;
+      return std::unexpected{Error::INTERNAL};
     }
   }
   handler_->signal_write();
   // At this point, downstream may be deleted.
-  return 0;
+  return {};
 }
 
-int Http2Upstream::downstream_error(DownstreamConnection *dconn, int events) {
+std::expected<void, Error>
+Http2Upstream::downstream_error(DownstreamConnection *dconn, int events) {
   auto downstream = dconn->get_downstream();
 
   if (log_enabled(INFO)) {
@@ -1371,14 +1372,14 @@ int Http2Upstream::downstream_error(DownstreamConnection *dconn, int events) {
         status = 502;
       }
       if (error_reply(downstream, status) != 0) {
-        return -1;
+        return std::unexpected{Error::INTERNAL};
       }
     }
     downstream->set_response_state(DownstreamState::MSG_COMPLETE);
   }
   handler_->signal_write();
   // At this point, downstream may be deleted.
-  return 0;
+  return {};
 }
 
 int Http2Upstream::rst_stream(Downstream *downstream, uint32_t error_code) {
@@ -1898,9 +1899,9 @@ int Http2Upstream::on_downstream_header_complete(Downstream *downstream) {
 
 // WARNING: Never call directly or indirectly nghttp2_session_send or
 // nghttp2_session_recv. These calls may delete downstream.
-int Http2Upstream::on_downstream_body(Downstream *downstream,
-                                      std::span<const uint8_t> data,
-                                      bool flush) {
+std::expected<void, Error>
+Http2Upstream::on_downstream_body(Downstream *downstream,
+                                  std::span<const uint8_t> data, bool flush) {
   auto body = downstream->get_response_buf();
   body->append(data);
 
@@ -1911,7 +1912,7 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
     downstream->ensure_upstream_wtimer();
   }
 
-  return 0;
+  return {};
 }
 
 // WARNING: Never call directly or indirectly nghttp2_session_send or
@@ -2080,8 +2081,6 @@ void Http2Upstream::on_handler_delete() {
 }
 
 int Http2Upstream::on_downstream_reset(Downstream *downstream, bool no_retry) {
-  int rv;
-
   if (downstream->get_dispatch_state() != DispatchState::ACTIVE) {
     // This is error condition when we failed push_request_headers()
     // in initiate_downstream().  Otherwise, we have
@@ -2114,7 +2113,7 @@ int Http2Upstream::on_downstream_reset(Downstream *downstream, bool no_retry) {
 
   std::unique_ptr<DownstreamConnection> dconn;
 
-  rv = 0;
+  auto err = Error::INTERNAL;
 
   if (no_retry || downstream->no_more_retry()) {
     goto fail;
@@ -2124,26 +2123,28 @@ int Http2Upstream::on_downstream_reset(Downstream *downstream, bool no_retry) {
   // downstream connection.
 
   for (;;) {
-    auto dconn = handler_->get_downstream_connection(rv, downstream);
-    if (!dconn) {
+    auto maybe_dconn = handler_->get_downstream_connection(downstream);
+    if (!maybe_dconn) {
+      err = maybe_dconn.error();
       goto fail;
     }
 
-    rv = downstream->attach_downstream_connection(std::move(dconn));
-    if (rv == 0) {
+    if (downstream->attach_downstream_connection(std::move(*maybe_dconn))) {
       break;
     }
   }
 
-  rv = downstream->push_request_headers();
-  if (rv != 0) {
+  if (auto rv = downstream->push_request_headers(); !rv) {
+    err = rv.error();
     goto fail;
   }
 
   return 0;
 
 fail:
-  if (rv == SHRPX_ERR_TLS_REQUIRED) {
+  int rv;
+
+  if (err == Error::TLS_REQUIRED) {
     rv = on_downstream_abort_request_with_https_redirect(downstream);
   } else {
     rv = on_downstream_abort_request(downstream, 502);
@@ -2176,32 +2177,35 @@ int Http2Upstream::prepare_push_promise(Downstream *downstream) {
       continue;
     }
     for (auto &link : http2::parse_link_header(kv.value)) {
-      std::string_view scheme, authority, path;
-
-      rv = http2::construct_push_component(balloc, scheme, authority, path,
-                                           base, link.uri);
-      if (rv != 0) {
+      auto maybe_push_comp =
+        http2::construct_push_component(balloc, base, link.uri);
+      if (!maybe_push_comp) {
         continue;
       }
 
-      if (scheme.empty()) {
-        scheme = req.scheme;
+      auto push_comp = *maybe_push_comp;
+
+      if (push_comp.scheme.empty()) {
+        push_comp.scheme = req.scheme;
       }
 
-      if (authority.empty()) {
-        authority = req.authority;
+      if (push_comp.authority.empty()) {
+        push_comp.authority = req.authority;
       }
 
-      if (resp.is_resource_pushed(scheme, authority, path)) {
+      if (resp.is_resource_pushed(push_comp.scheme, push_comp.authority,
+                                  push_comp.path)) {
         continue;
       }
 
-      rv = submit_push_promise(scheme, authority, path, downstream);
+      rv = submit_push_promise(push_comp.scheme, push_comp.authority,
+                               push_comp.path, downstream);
       if (rv != 0) {
         return -1;
       }
 
-      resp.resource_pushed(scheme, authority, path);
+      resp.resource_pushed(push_comp.scheme, push_comp.authority,
+                           push_comp.path);
     }
   }
   return 0;
@@ -2292,35 +2296,36 @@ int Http2Upstream::initiate_push(Downstream *downstream, std::string_view uri) {
 
   auto &balloc = downstream->get_block_allocator();
 
-  std::string_view scheme, authority, path;
-
-  rv =
-    http2::construct_push_component(balloc, scheme, authority, path, base, uri);
-  if (rv != 0) {
+  auto maybe_push_comp = http2::construct_push_component(balloc, base, uri);
+  if (!maybe_push_comp) {
     return -1;
   }
 
-  if (scheme.empty()) {
-    scheme = req.scheme;
+  auto push_comp = *maybe_push_comp;
+
+  if (push_comp.scheme.empty()) {
+    push_comp.scheme = req.scheme;
   }
 
-  if (authority.empty()) {
-    authority = req.authority;
+  if (push_comp.authority.empty()) {
+    push_comp.authority = req.authority;
   }
 
   auto &resp = downstream->response();
 
-  if (resp.is_resource_pushed(scheme, authority, path)) {
+  if (resp.is_resource_pushed(push_comp.scheme, push_comp.authority,
+                              push_comp.path)) {
     return 0;
   }
 
-  rv = submit_push_promise(scheme, authority, path, downstream);
+  rv = submit_push_promise(push_comp.scheme, push_comp.authority,
+                           push_comp.path, downstream);
 
   if (rv != 0) {
     return -1;
   }
 
-  resp.resource_pushed(scheme, authority, path);
+  resp.resource_pushed(push_comp.scheme, push_comp.authority, push_comp.path);
 
   return 0;
 }

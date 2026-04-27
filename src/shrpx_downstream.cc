@@ -246,15 +246,15 @@ Downstream::~Downstream() {
   }
 }
 
-int Downstream::attach_downstream_connection(
+std::expected<void, Error> Downstream::attach_downstream_connection(
   std::unique_ptr<DownstreamConnection> dconn) {
-  if (dconn->attach_downstream(this) != 0) {
-    return -1;
+  if (auto rv = dconn->attach_downstream(this); !rv) {
+    return rv;
   }
 
   dconn_ = std::move(dconn);
 
-  return 0;
+  return {};
 }
 
 void Downstream::detach_downstream_connection() {
@@ -304,12 +304,13 @@ void Downstream::pause_read(IOCtrlReason reason) {
   }
 }
 
-int Downstream::resume_read(IOCtrlReason reason, size_t consumed) {
+std::expected<void, Error> Downstream::resume_read(IOCtrlReason reason,
+                                                   size_t consumed) {
   if (dconn_) {
     return dconn_->resume_read(reason, consumed);
   }
 
-  return 0;
+  return {};
 }
 
 void Downstream::force_resume_read() {
@@ -510,7 +511,7 @@ void append_last_header_value(BlockAllocator &balloc, bool &key_prev,
 }
 } // namespace
 
-int FieldStore::parse_content_length() {
+std::expected<void, Error> FieldStore::parse_content_length() {
   content_length = -1;
 
   for (auto &kv : headers_) {
@@ -518,16 +519,16 @@ int FieldStore::parse_content_length() {
       continue;
     }
 
-    auto len = util::parse_uint(kv.value);
-    if (!len) {
-      return -1;
+    auto maybe_cl = util::parse_uint(kv.value);
+    if (!maybe_cl) {
+      return std::unexpected{maybe_cl.error()};
     }
     if (content_length != -1) {
-      return -1;
+      return std::unexpected{Error::HTTP};
     }
-    content_length = static_cast<int64_t>(*len);
+    content_length = static_cast<int64_t>(*maybe_cl);
   }
-  return 0;
+  return {};
 }
 
 const HeaderRefs::value_type *FieldStore::header(int32_t token) const {
@@ -674,46 +675,47 @@ DefaultMemchunks *Downstream::get_request_buf() { return &request_buf_; }
 
 // Call this function after this object is attached to
 // Downstream. Otherwise, the program will crash.
-int Downstream::push_request_headers() {
+std::expected<void, Error> Downstream::push_request_headers() {
   if (!dconn_) {
     Log{INFO, this} << "dconn_ is NULL";
-    return -1;
+    return std::unexpected{Error::INTERNAL};
   }
   return dconn_->push_request_headers();
 }
 
-int Downstream::push_upload_data_chunk(std::span<const uint8_t> data) {
+std::expected<void, Error>
+Downstream::push_upload_data_chunk(std::span<const uint8_t> data) {
   req_.recv_body_length += data.size();
 
   if (!dconn_ && !request_header_sent_) {
     blocked_request_buf_.append(data);
     req_.unconsumed_body_length += data.size();
-    return 0;
+    return {};
   }
 
   // Assumes that request headers have already been pushed to output
   // buffer using push_request_headers().
   if (!dconn_) {
     Log{INFO, this} << "dconn_ is NULL";
-    return -1;
+    return std::unexpected{Error::INTERNAL};
   }
-  if (dconn_->push_upload_data_chunk(data) != 0) {
-    return -1;
+  if (auto rv = dconn_->push_upload_data_chunk(data); !rv) {
+    return rv;
   }
 
   req_.unconsumed_body_length += data.size();
 
-  return 0;
+  return {};
 }
 
-int Downstream::end_upload_data() {
+std::expected<void, Error> Downstream::end_upload_data() {
   if (!dconn_ && !request_header_sent_) {
     blocked_request_data_eof_ = true;
-    return 0;
+    return {};
   }
   if (!dconn_) {
     Log{INFO, this} << "dconn_ is NULL";
-    return -1;
+    return std::unexpected{Error::INTERNAL};
   }
   return dconn_->end_upload_data();
 }
@@ -750,10 +752,10 @@ bool Downstream::get_chunked_response() const { return chunked_response_; }
 
 void Downstream::set_chunked_response(bool f) { chunked_response_ = f; }
 
-int Downstream::on_read() {
+std::expected<void, Error> Downstream::on_read() {
   if (!dconn_) {
     Log{INFO, this} << "dconn_ is NULL";
-    return -1;
+    return std::unexpected{Error::INTERNAL};
   }
   return dconn_->on_read();
 }
