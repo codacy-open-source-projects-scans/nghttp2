@@ -106,6 +106,14 @@ enum class Error {
   HTTP,
   // DNS related error.
   DNS,
+  // WebSocket handshake failure.
+  WEBSOCKET_HANDSHAKE,
+  // PROXY-protocol error.
+  PROXY_PROTO,
+  // HTTP fields are too large.
+  HTTP_FIELD_TOO_LARGE,
+  // mruby library error (e.g., error from mruby API)
+  MRUBY,
 };
 
 } // namespace nghttp2
@@ -219,6 +227,18 @@ struct std::formatter<nghttp2::Error>
       break;
     case nghttp2::Error::DNS:
       s = "DNS failure"sv;
+      break;
+    case nghttp2::Error::WEBSOCKET_HANDSHAKE:
+      s = "WebSocket handshake failure"sv;
+      break;
+    case nghttp2::Error::PROXY_PROTO:
+      s = "PROXY-protocol failure"sv;
+      break;
+    case nghttp2::Error::HTTP_FIELD_TOO_LARGE:
+      s = "HTTP fields are too large"sv;
+      break;
+    case nghttp2::Error::MRUBY:
+      s = "mruby"sv;
       break;
     }
 
