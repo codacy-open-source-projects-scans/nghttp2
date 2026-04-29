@@ -851,7 +851,6 @@ int ConnectionHandler::quic_ipc_read() {
 
     auto quic_conn_handler = single_worker_->get_quic_connection_handler();
 
-    // Ignore return value
     quic_conn_handler->handle_packet(faddr, pkt->remote_addr, pkt->local_addr,
                                      pkt->pi, pkt->data);
 
@@ -862,10 +861,10 @@ int ConnectionHandler::quic_ipc_read() {
 
   ConnectionID decrypted_dcid;
 
-  if (decrypt_quic_connection_id(
+  if (!decrypt_quic_connection_id(
         decrypted_dcid,
         std::span{vc.dcid, vc.dcidlen}.subspan(SHRPX_QUIC_CID_WORKER_ID_OFFSET),
-        qkm.cid_decryption_ctx) != 0) {
+        qkm.cid_decryption_ctx)) {
     return -1;
   }
 
